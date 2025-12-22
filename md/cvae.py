@@ -91,7 +91,7 @@ class CVAE(nn.Module):
         diffusion_operator_type = 'spectral_fc',
         diffusion_conditioning_rank = 2,
         diffusion_conditioning_operator_type = 'spectral_fc',
-
+        loading = False
     ):
         super(CVAE, self).__init__()
 
@@ -109,7 +109,8 @@ class CVAE(nn.Module):
         self.variable_names = variable_names
         self.seasonality_dim = seasonality_dim
         self.seasonality_basis = seasonality_basis
-
+        self.loading = loading 
+        
         self.encoder_sfno_embed_dim = encoder_sfno_embed_dim
         self.encoder_rank = encoder_rank
         self.encoder_operator_type = encoder_operator_type

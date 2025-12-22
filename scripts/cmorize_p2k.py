@@ -177,8 +177,12 @@ regrid_methods = {
 if __name__ == "__main__":
     from pathlib import Path 
     import pandas as pd 
+    
     model_path = "MD-1p5.pth"
     ds = xr.open_mfdataset(f"p2k_forcings-{model_path[:-4]}/*.nc")
+
+    template_dir = "/glade/work/khall/ERA5/AIMIP-Data/templates_p2k/"
+
     
     #ds = xr.open_dataset("/glade/work/khall/ERA5/AIMIP-Data/era5-flat-1p5x1p5.nc").sel(time=slice("1978-10-01", "2022-12-01"))
     institution = "UMD-PARETO" 
@@ -216,7 +220,7 @@ if __name__ == "__main__":
             out_path = out_dir / filename
 
             # Define file paths
-            base_dir = f"templates_p2k/{variable}/gr/v20190815/"
+            base_dir = f"{template_dir}/{variable}/gr/v20190815/"
             template_filename = f"{variable}_Amon_MPI-ESM1-2-LR_amip_r1i1p1f1_gr_197901-199812.nc"
             template_path = os.path.join(base_dir, template_filename)
 

@@ -8,6 +8,15 @@ __pycache__/
 
 # model checkpoints
 .best*
+UMD-PARETO/ 
+p4k_*/
+p2k_*/
+observed_forcings*/
+*.json
+plus2k_forcings.nc
+plus4k_forcings.nc
+
+
 
 # Distribution / packaging
 .Python
