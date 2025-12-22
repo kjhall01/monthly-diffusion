@@ -4,17 +4,47 @@ Monthly Diffusion v0.0.1 (MD1) implements v-prediction type conditional diffusio
 
 MD1 is an initial version of a model architecture which may subsequently be used in Kyle Hall's doctoral dissertation to study internal variability and the forced response of the earth system to anthropogenic forcings (which were not used for AIMIP). MD1 operates on a monthly-averaged atmospheric state vector derived from ERA5 monthly mean fields (derived = regridded), directly targetting long-timescale modeling and slow climate processes, and dramatically decreasing the computational expense of model training and long autoregressive climate runs. 
 
-In our parlance, the encoder parametrizes (under parameters $\theta$) the bayesian posterior distribution $p_\theta(z | x, c)$ where $x$ is the atmospheric state, and $c$ is a conditioning tensor. It is modeled as a multivariate gaussian with a diagonal covariance matrix, with parameters $\mu$ and $\sigma$. A random sample of the posterior is generated with the 'reparametrization trick' $z = \mu + \epsilon * \sigma$ where $\epsilon \in \mathcal{N}(0, 1)$, as in most other VAE architectures. We push $p_theta$ towards isotropy by implementing the standard Kulback-Liebler Divergence loss term, $D_{kl}(p_\theta | \mathcal{N}(0, 1) )$. The decoder then parametrizes (under parameters $\phi$) the likelihood distribution, $q_\phi(x | z, c)$. 
+In our parlance, the encoder parametrizes (under parameters $\theta$) the bayesian posterior distribution $p_\theta(z | x, c)$ where $x$ is the atmospheric state, and $c$ is a conditioning tensor. It is modeled as a multivariate gaussian with a diagonal covariance matrix, with parameters $\mu$ and $\sigma$. A random sample of the posterior is generated with the 'reparametrization trick' $z = \mu + \epsilon * \sigma$ where $\epsilon \in \mathcal{N}(0, 1)$, as in most other VAE architectures. We push $p_\theta$ towards an isotropic multivariate gaussian prior $p(z)$ by implementing the standard Kulback-Liebler Divergence loss term, $D_{kl}(p_\theta | \mathcal{N}(0, 1) )$. The decoder then parametrizes (under parameters $\phi$) the likelihood distribution, $q_\phi(x | z, c)$. 
 
 The denoiser then performs conditional denoising through v-prediction, in order to predict the mean of the latent distribution at time $t+1$, given the state of the latent at time $t$, and the conditions at time $t$, parametrizing under $\gamma$ the distribution $p_\gamma(\mu_{t+1} | z_t, c_t)$.  Anecdotally, this parametrization strikes a balance between overfitting and autoregressive stability. Conditioning on $z_t$ instead of $\mu_t$ effectively 'augments' the training data (which is very necessary, due to the small number of training samples), and targetting $\mu_{t+1}$ instead of $z_{t+1}$ stabilizes the autoregression (again, anecdotally) because then prediction errors (if unbiased) can be interpreted of as small random samples of $p_\theta$  at time $t+1$, which our network is already trained to see. 
 
 Here $x$ represents the required AIMIP reporting fields: U/V/T/Q on seven pressure levels (1000, 850, 700, 500, 250, 100, and 50 hPa), Geopotential Height at 500 hPa (Z500) as well as the required 2D variables SKT, T2M, T2D, U10m, V10m, MTPR, PS. We include Mean Sea Level Pressure (MSLP) (for no particular reason). $c$ includes both the physical forcing fields provided by AIMIP (Sea Surface Temp, Sea Ice Concentration, and a Land-Sea Mask), a learned seasonality embedding based on the month of the year. Speculatively, providing this type of $c$ to the encoder / decoder networks this way should allow the latent to focus on capturing variance unassociated with the forcing terms (SST, Ice) and unassociated with a seasonal cycle, effectively targetting weakly-coupled and atmospheric modes of variability such as the North Atlantic Oscillation (NAO). 
 
-# Procedure
+# Model Procedure
 
 1. Encode: $p_\theta(z_t | x_t, c_t) = \mathcal{N}(\mu_t, \sigma_t^2)$
 2. Sample: $z_t = \mu_t + \epsilon * \sigma_t$ where $\epsilon \in \mathcal{N}(0, 1)$
-3. Predict: 
+3. Conditional Denoising using a cosine-beta noise schedule to define $\bar{\alpha}, \alpha, \sigma^2, \beta$ at each of $T$ noise levels indexed by $t$
+   ```
+   n = N(0, 1)
+   for t in 15 ... 1:
+     v = denoiser(n  given {t/15, z_t0, c_t0})
+     eps = sqrt(alpha_bar_t) * v + sqrt( 1 - alpha_bar_t) * n
+
+     mu = 1/sqrt(alpha_t) * ( x - beta_t / torch.sqrt(1 - alpha_bar_t) * eps )
+
+     # add back noise at next noise level
+     if t > 1:
+       n = mu + N(0, 1) * sigma^2
+
+   z_t1 = (mu * z_pop_stddev) + z_pop_mean
+   ```
+
+   vaguely following:
+   
+   [1] https://github.com/lucidrains/denoising-diffusion-pytorch/blob/7706bdfc6f527f58d33f84b7b522e61e6e3164b3/denoising_diffusion_pytorch/denoising_diffusion_pytorch.py
+   
+   [2] https://github.com/openai/improved-diffusion/blob/e94489283bb876ac1477d5dd7709bbbd2d9902ce/improved_diffusion/gaussian_diffusion.py
+   
+   [3] https://github.com/CompVis/latent-diffusion/blob/main/ldm/models/diffusion/ddpm.py
+   
+   with the additional help of generative ai (GPT5.1, Github Copilot).
+
+   For autoregression, repeat by swapping $\hat{z_{t+1}}$ in for $z_t$ and $c_{t+1}$ in for $c_t$. (decoding is not necessary for autoregression as time-stepping happens in latent space)
+
+5. Decode: $q_\phi(\hat{x_{t+1}} | \hat{z_{t+1}}, c_{t+1})$ according to forcing value at time $t+1$
+
+It is reasonable to use the forcing at time $t+1$ to condition the decoding of the predicted latent because the atmosphere in theory responds quickly to the state of the ocean. In a higher-frequency model, presumably the atmosphere "sees" the new oceanic forcings on 1 Jan, and responds to them all month long- mostly no longer responding to oceanic forcing from 1-31 Dec. This model is not meant to be a forecast model, but you could run a more true-to-form forecast by forcing the decoding with the climatological mean SST, for example. 
 
 
 # Install
