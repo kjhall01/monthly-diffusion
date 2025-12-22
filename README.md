@@ -20,8 +20,13 @@ $L_1$ | $E\[ (X_t - \hat{X}_t)^2\]$ | Reconstruction MSE
 $L_2$ | $E\[ (v - \hat{v})^2]$ | $v$-prediction MSE
 $L_3$ | $D_{kl}(p_\theta(z_t \| x_t, c_t) , \mathcal{N}(0, 1) )$ | KL Divergence
 $L_4$ | $(E\[ z_t\] - z_{pop})^2]$ | Latent Population Mean MSE 
-$L_4$ | ($E\[ (E\[ z_t\] - z_t)^2 \] - z_{pop})^2$ | Latent Population Std. Dev. MSE 
+$L_5$ | ($E\[ (E\[ z_t\] - z_t)^2 \] - z_{pop})^2$ | Latent Population Std. Dev. MSE 
 
+Our full weighted loss function is then:
+
+$Loss = \lambda_1 L_1 + \lambda_2 L_2 + \lambda_3 ( L_3 + L_4 + L_5)$
+
+(It takes a some tuning to get a good model - I've been using ~ $\lambda_1 = 1, \lambda_2 = 0.5, \lambda_3 = 5e-3$ but haven't done any systematic hyperparameter tuning ) 
 
 Here $x$ represents the required AIMIP reporting fields: U/V/T/Q on seven pressure levels (1000, 850, 700, 500, 250, 100, and 50 hPa), Geopotential Height at 500 hPa (Z500) as well as the required 2D variables SKT, T2M, T2D, U10m, V10m, MTPR, PS. We include Mean Sea Level Pressure (MSLP) (for no particular reason). $c$ includes both the physical forcing fields provided by AIMIP (Sea Surface Temp, Sea Ice Concentration, and a Land-Sea Mask), a learned seasonality embedding based on the month of the year. Speculatively, providing this type of $c$ to the encoder / decoder networks this way should allow the latent to focus on capturing variance unassociated with the forcing terms (SST, Ice) and unassociated with a seasonal cycle, effectively targetting weakly-coupled and atmospheric modes of variability such as the North Atlantic Oscillation (NAO). 
 
