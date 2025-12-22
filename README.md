@@ -1,6 +1,7 @@
 # Monthly Diffusion: Towards AI for Climate
-## Kyle Hall (kylehall@umd.edu); Maria Molina
-## UMD Pareto Group (https://mariajmolina.github.io/) 
+####  Kyle Hall (kylehall@umd.edu); Maria Molina
+#### UMD Pareto Group (https://mariajmolina.github.io/) 
+
 Monthly Diffusion v0.0.1 (MD1) implements v-prediction type conditional diffusion in the latent space of a conditional variational autoencoder. The architecture of the Encoder/Decoder/Denoiser networks are based on Spherical Fourier Neural Operators. They use spatial conditional RMS norms (akin to FiLM or other conditional normalizations) and low-rank tensor operators (akin to fully-connected linear layers in SHT space) to explicitly allow cross-wavenumber "energy cascades", as happen in the actual earth system. 
 
 MD1 is an initial version of a model architecture which may subsequently be used in Kyle Hall's doctoral dissertation to study internal variability and the forced response of the earth system to anthropogenic forcings (which were not used for AIMIP). MD1 operates on a monthly-averaged atmospheric state vector derived from ERA5 monthly mean fields (derived = regridded), directly targetting long-timescale modeling and slow climate processes, and dramatically decreasing the computational expense of model training and long autoregressive climate runs. 
