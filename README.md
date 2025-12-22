@@ -2,7 +2,7 @@
 ####  Kyle Hall (kylehall@umd.edu); Maria Molina
 #### UMD Pareto Group (https://mariajmolina.github.io/) 
 
-Monthly Diffusion v0.0.1 (MD1) implements v-prediction type conditional diffusion in the latent space of a conditional variational autoencoder. The architecture of the Encoder/Decoder/Denoiser networks are based on Spherical Fourier Neural Operators. They use spatial conditional RMS norms (akin to FiLM or other conditional normalizations) and low-rank tensor operators (akin to fully-connected linear layers in SHT space) to explicitly allow cross-wavenumber "energy cascades", as happen in the actual earth system (conceptually, we have not studied this). 
+Monthly Diffusion v0.0.1 (MD1) implements v-prediction [1] type conditional diffusion in the latent space of a conditional variational autoencoder [2, 3, 4, 5]. The architecture of the Encoder/Decoder/Denoiser networks are based on Spherical Fourier Neural Operators [6]. They use spatial conditional RMS norms (akin to FiLM [7] or other conditional normalizations) and low-rank tensor operators (akin to fully-connected linear layers in SHT space) to explicitly allow cross-wavenumber "energy cascades", as happen in the actual earth system (conceptually, we have not studied this). 
 
 MD1 is an initial version of a model architecture which may subsequently be used in Kyle Hall's doctoral dissertation to study internal variability and the forced response of the earth system to anthropogenic forcings (which were not used for AIMIP). MD1 operates on a monthly-averaged atmospheric state vector derived from ERA5 monthly mean fields (derived = regridded), directly targetting long-timescale modeling and slow climate processes, and dramatically decreasing the computational expense of model training and long autoregressive climate runs. As of 12/22/2025, I (Kyle) have been able to run training code at 1.5 degree nominal horizontal resolution on an Apple M3 with 8GB RAM. We trained on Derecho A1000 GPUs for the AIMIP run, however- on a single A1000, it takes about 2 hours wall-clock time for the model to converge. On M3, maybe over the weekend but that's still unproven. The 46.25 year autoregressive runs are of trivial cost ~ minutes.
 
@@ -50,15 +50,7 @@ Here $x$ represents the required AIMIP reporting fields: U/V/T/Q on seven pressu
    z_t1 = (mu * z_pop_stddev) + z_pop_mean
    ```
 
-   vaguely following:
-   
-   [1] https://github.com/lucidrains/denoising-diffusion-pytorch/blob/7706bdfc6f527f58d33f84b7b522e61e6e3164b3/denoising_diffusion_pytorch/denoising_diffusion_pytorch.py
-   
-   [2] https://github.com/openai/improved-diffusion/blob/e94489283bb876ac1477d5dd7709bbbd2d9902ce/improved_diffusion/gaussian_diffusion.py
-   
-   [3] https://github.com/CompVis/latent-diffusion/blob/main/ldm/models/diffusion/ddpm.py
-   
-   with the additional help of generative ai (GPT5.1, Github Copilot).
+   vaguely following [8, 9, 10] with the additional help of generative ai (GPT5.1, Github Copilot).
 
    For autoregression, repeat by swapping $\hat{z_{t+1}}$ in for $z_t$ and $c_{t+1}$ in for $c_t$. (decoding is not necessary for autoregression as time-stepping happens in latent space)
 
@@ -103,6 +95,16 @@ Since AIMIP requires data to be in a CMOR-compliant format, we need to CMOR-ize 
 Once CMOR-ization has completed  you can use the `scripts/analyze_cmorized.ipynb` notebook to evaluate your model output in some basic ways (you'll need to change the paths to reflect your model name / current date). You could also directly analyze the model output un-cmorized with some of the other legacy scripts in `scripts`, if you wanted, but I don't really use those anymore and can't guarantee anything. 
 
 
-
-
+# References
+- [1] https://arxiv.org/pdf/2202.00512
+- [2] https://arxiv.org/abs/1906.02691
+- [3] https://arxiv.org/abs/1804.03599
+- [4] https://arxiv.org/abs/1312.6114
+- [5] https://papers.nips.cc/paper_files/paper/2015/hash/8d55a249e6baa5c06772297520da2051-Abstract.html
+- [6] https://arxiv.org/abs/2306.03838
+- [7] https://arxiv.org/abs/1709.07871
+- [8] https://github.com/lucidrains/denoising-diffusion-pytorch/blob/7706bdfc6f527f58d33f84b7b522e61e6e3164b3/denoising_diffusion_pytorch/denoising_diffusion_pytorch.py
+- [9] https://github.com/openai/improved-diffusion/blob/e94489283bb876ac1477d5dd7709bbbd2d9902ce/improved_diffusion/gaussian_diffusion.py
+- [10] https://github.com/CompVis/latent-diffusion/blob/main/ldm/models/diffusion/ddpm.py
+   
 
