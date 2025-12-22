@@ -92,6 +92,9 @@ Since AIMIP requires data to be in a CMOR-compliant format, we need to CMOR-ize 
 
 Once CMOR-ization has completed  you can use the `scripts/analyze_cmorized.ipynb` notebook to evaluate your model output in some basic ways (you'll need to change the paths to reflect your model name / current date). You could also directly analyze the model output un-cmorized with some of the other legacy scripts in `scripts`, if you wanted, but I don't really use those anymore and can't guarantee anything. 
 
+# Evaluate Test Set Reconstruction
+
+You can evaluate test set reconstruction skill with `scripts/evaluate_test_set_skill.py`.
 
 # References
 - [1] https://arxiv.org/pdf/2202.00512
