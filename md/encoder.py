@@ -14,6 +14,7 @@ class VariationalEncoder(nn.Module):
             statics = None,
             device=torch.device('cuda'),
             rank = 32,
+            operator_type = 'spectral_fc',
             conditioning_rank = 4,
             conditioning_operator_type = 'spectral_fc'
         ):
@@ -45,6 +46,7 @@ class VariationalEncoder(nn.Module):
             sfno_hidden_layer= sfno_embed_dim,
             varnames = varnames,
             rank = rank,
+            operator_type=operator_type,
             conditioning_rank = conditioning_rank,
             conditioning_operator_type = conditioning_operator_type
         )
@@ -62,13 +64,15 @@ class VariationalEncoder(nn.Module):
                     is_sfno_block = False if sfno_embed_dim == 0 else True, 
                     sfno_hidden_layer= sfno_embed_dim,
                     rank = rank,
+                    operator_type = operator_type,
                     conditioning_rank = conditioning_rank,
                     conditioning_operator_type = conditioning_operator_type
                 )
             )
 
         self.layers = nn.ModuleList(layers)
-
+        self.to(self.device) 
+        
         if self.statics is None:
             self.statics = [None for _ in range(len(self.layers)+1) ] 
         else:

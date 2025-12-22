@@ -108,6 +108,7 @@ class Diffusion(nn.Module):
             s = 0.008,
             time_channels = 5,
             rank = 16,
+            operator_type="spectral_fc",
             conditioning_operator_type = "driscoll-healy",
             conditioning_hidden_channels = 4,
             conditioning_rank = 4
@@ -135,6 +136,7 @@ class Diffusion(nn.Module):
             is_sfno_block = False if self.sfno_embed_dim == 0 else True, 
             sfno_hidden_layer= self.sfno_embed_dim,
             rank = self.rank,
+            operator_type=operator_type,
             conditioning_operator_type = conditioning_operator_type, 
             conditioning_hidden_channels = conditioning_hidden_channels,
             conditioning_rank = conditioning_rank
@@ -154,6 +156,7 @@ class Diffusion(nn.Module):
                     sfno_hidden_layer= self.sfno_embed_dim,
                     has_resampled_condition = True,
                     rank = self.rank,
+                    operator_type=operator_type,
                     conditioning_operator_type = conditioning_operator_type, 
                     conditioning_hidden_channels = conditioning_hidden_channels,
                     conditioning_rank = conditioning_rank

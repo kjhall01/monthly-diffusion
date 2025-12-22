@@ -12,6 +12,7 @@ class Decoder(nn.Module):
             statics = None,
             rank = 32,
             conditioning_rank = 4,
+            operator_type = "spectral_fc",
             conditioning_hidden_channels = 2,
             conditioning_operator_type = "spectral_fc"
         ):
@@ -29,6 +30,7 @@ class Decoder(nn.Module):
             sfno_hidden_layer= sfno_embed_dim,
             has_resampled_condition = True,
             rank = rank,
+            operator_type = operator_type,
             conditioning_operator_type = conditioning_operator_type, 
             conditioning_hidden_channels = conditioning_hidden_channels,
             conditioning_rank = conditioning_rank
@@ -49,6 +51,7 @@ class Decoder(nn.Module):
                     sfno_hidden_layer= sfno_embed_dim,
                     has_resampled_condition=True,
                     rank = rank,
+                    operator_type = operator_type,
                     conditioning_operator_type = conditioning_operator_type,
                     conditioning_hidden_channels = conditioning_hidden_channels,
                     conditioning_rank = conditioning_rank

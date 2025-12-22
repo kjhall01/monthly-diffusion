@@ -23,7 +23,7 @@ import uuid
 
 ## seasonality embedding 
 class MonthlySpatialTimeEmbedding(nn.Module):
-    def __init__(self, C, H, W, basis=8, hidden=64):
+    def __init__(self, C, H, W, seasonality_dim=3, basis=8, hidden=64):
         super().__init__()
         self.H, self.W, self.C = H, W, C
 
@@ -36,7 +36,7 @@ class MonthlySpatialTimeEmbedding(nn.Module):
 
         # Learnable spatial basis: (basis, C, H, W)
         self.spatial_basis = nn.Parameter(
-            torch.randn(basis, basis, H, W) * 0.02
+            torch.randn(basis, seasonality_dim, H, W) * 0.02
         )
 
     def forward(self, month):
@@ -71,21 +71,25 @@ class CVAE(nn.Module):
         hidden_channels=[8],
         squeeze_factors = [ 2],
         variable_names = None,
-        seasonality_dim = 8,
+        seasonality_dim = 3,
+        seasonality_basis = 8,
 
         encoder_sfno_embed_dim = 128,
         encoder_rank = 32,
+        encoder_operator_type = 'spectral_fc',
         encoder_conditioning_rank = 4,
         encoder_conditioning_operator_type = 'spectral_fc',
     
         decoder_sfno_embed_dim = 128,
         decoder_rank = 32,
+        decoder_operator_type = 'spectral_fc',
         decoder_conditioning_rank = 4,
         decoder_conditioning_operator_type = 'spectral_fc',
 
         diffusion_sfno_embed_dim = 128,
         diffusion_rank = 32,
-        diffusion_conditioning_rank = 4,
+        diffusion_operator_type = 'spectral_fc',
+        diffusion_conditioning_rank = 2,
         diffusion_conditioning_operator_type = 'spectral_fc',
 
     ):
@@ -104,19 +108,23 @@ class CVAE(nn.Module):
         self.squeeze_factors = squeeze_factors
         self.variable_names = variable_names
         self.seasonality_dim = seasonality_dim
+        self.seasonality_basis = seasonality_basis
 
         self.encoder_sfno_embed_dim = encoder_sfno_embed_dim
         self.encoder_rank = encoder_rank
+        self.encoder_operator_type = encoder_operator_type
         self.encoder_conditioning_rank = encoder_conditioning_rank
         self.encoder_conditioning_operator_type = encoder_conditioning_operator_type
     
         self.decoder_sfno_embed_dim = decoder_sfno_embed_dim
         self.decoder_rank = decoder_rank
+        self.decoder_operator_type = decoder_operator_type
         self.decoder_conditioning_rank = decoder_conditioning_rank
         self.decoder_conditioning_operator_type = decoder_conditioning_operator_type
 
         self.diffusion_sfno_embed_dim = diffusion_sfno_embed_dim
         self.diffusion_rank = diffusion_rank
+        self.diffusion_operator_type = diffusion_operator_type
         self.diffusion_conditioning_rank = diffusion_conditioning_rank 
         self.diffusion_conditioning_operator_type = diffusion_conditioning_operator_type
 
@@ -137,10 +145,12 @@ class CVAE(nn.Module):
             intermediate_sizes, 
             forcing_dim + seasonality_dim, 
             n_statics = self.n_statics,
+            device = device,
             activation = activation,
             varnames= self.variable_names,
             statics = self.statics,
             rank = self.encoder_rank, 
+            operator_type = self.encoder_operator_type,
             conditioning_rank = self.encoder_conditioning_rank,
             conditioning_operator_type = self.encoder_conditioning_operator_type,
             sfno_embed_dim=self.encoder_sfno_embed_dim
@@ -154,6 +164,7 @@ class CVAE(nn.Module):
             n_statics = self.n_statics,
             statics = self.encoder.statics,
             rank = self.decoder_rank,
+            operator_type = self.decoder_operator_type,
             conditioning_rank = self.decoder_conditioning_rank,
             conditioning_operator_type = self.decoder_conditioning_operator_type
         )
@@ -166,6 +177,7 @@ class CVAE(nn.Module):
             sfno_embed_dim=self.diffusion_sfno_embed_dim,
             device = device,
             rank = self.diffusion_rank,
+            operator_type = self.diffusion_operator_type,
             conditioning_rank = self.diffusion_conditioning_rank,
             conditioning_operator_type = self.diffusion_conditioning_operator_type
         )
@@ -173,7 +185,8 @@ class CVAE(nn.Module):
         print("LATENT SPACE DIMENSIONS: ", intermediate_sizes[0])
         self.seasonality_embedding = MonthlySpatialTimeEmbedding(
             *self.data_dimensions, 
-            basis=self.seasonality_dim
+            basis=self.seasonality_basis,
+            seasonality_dim= self.seasonality_dim
         )
 
         self.device = device 
@@ -183,8 +196,6 @@ class CVAE(nn.Module):
         std = torch.exp(0.5 * logvar)
         if eps is None:
             eps = torch.randn_like(std).to(mu.device).detach()
-        elif eps == 'gauss':
-            eps = gen_legendre_gauss_noise(std, self.predictor.first_layer.condition_resample)
         else:
             eps = eps 
         return mu + eps * std
@@ -354,8 +365,8 @@ class CVAE(nn.Module):
                 loss = loss_terms['Reconstruction'] * self.recon_weight + \
                     loss_terms['KL Divergence'] * self.kl_weight + \
                     loss_terms['Denoising Loss'] * self.prediction_weight + \
-                    loss_terms['Latent Population Mean Loss'] * self.prediction_weight + \
-                    loss_terms['Latent Population LgVar Loss'] * self.prediction_weight 
+                    loss_terms['Latent Population Mean Loss']  + \
+                    loss_terms['Latent Population LgVar Loss'] #* self.prediction_weight 
 
                 loss.backward()
 
@@ -421,9 +432,9 @@ class CVAE(nn.Module):
             print("                 Train         Val")
             for key in val_loss_tracking.keys():
                 if key in list(loss_tracking.keys()):
-                    print(f"  {key}:  {loss_tracking[key]:>0.4f}  {val_loss_tracking[key]:>0.4f}") 
+                    print(f"  {key}:  {loss_tracking[key]:>0.7f}  {val_loss_tracking[key]:>0.7f}") 
                 else:
-                    print(f"    {key}:  {val_loss_tracking[key]:>0.4f}") 
+                    print(f"    {key}:  {val_loss_tracking[key]:>0.7f}") 
 
             print(f"Best Overall Model - recon: {best_recon_same}  pred: {best_pred_same}") 
             print(f"Best Recon Model - recon: {best_recon_recon}  pred: {best_pred_recon}") 

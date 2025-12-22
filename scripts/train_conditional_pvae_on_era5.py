@@ -5,18 +5,20 @@ import numpy as np
 import torch 
 import pandas as pd
 import torch.nn as nn 
+from pathlib import Path
 
 #torch.cuda.set_device(0)
-mps_device = torch.device("cpu")
+mps_device = torch.device("mps")
 
-train_period = ("1979-01-01", "2014-12-01")
-val_period =  ("1950-01-01", "1978-12-01")
+train_period = ("1985-01-01", "2014-12-01")
+val_period =  ("1979-01-01", "1984-12-01")
 seasonality_dim=3
 forcing_variables = ['SSTKSFC', "CISFC", "nanmask"]
 group_levels = False
-dataset = '1p5x1p5'
+dataset = '5p0x5p0'
 training = True
 model_path = "MD-5p0.pth"
+data_dir = "~/Desktop/aimip-data/"
 
 observed_forcing_output_folder = f'observed_forcings-{model_path.split(".")[0]}'
 p2k_forcing_output_folder = f"p2k_forcings-{model_path.split(".")[0]}"
@@ -30,13 +32,13 @@ train, statistics, mask, statics = src.open_era5_mini(
     mode='conv',
     group_levels= group_levels,
     return_statics = True,
-    dataset = dataset 
+    dataset = dataset ,
+    data_dir = data_dir
 )
 
 
 train_forcing = train.sel(varlev=forcing_variables)
-aimip_forcings = xr.open_dataset(f'/glade/work/khall/ERA5/AIMIP-Data/aimip-forcings-flat-{dataset}.nc')
-print(aimip_forcings)
+aimip_forcings = xr.open_dataset(Path(data_dir) / f'aimip-forcings-flat-{dataset}.nc')
 aimip_forcings_prepped, dct, msk = src.preprocess_by_variables(aimip_forcings.da)
 
 train_nanmask = train_forcing.sel(varlev='nanmask').where(train_forcing.sel(varlev='nanmask') == 1, other=0)
@@ -76,11 +78,13 @@ val, statistics, mask, _ = src.open_era5_mini(
     mask = mask,
     mode='conv',
     group_levels= group_levels,
-    dataset = dataset 
+    dataset = dataset ,
+    data_dir = data_dir
+
 )
 
 val_forcing = val.sel(varlev = forcing_variables)
-aimip_forcings = xr.open_dataset(f'/glade/work/khall/ERA5/AIMIP-Data/aimip-forcings-flat-{dataset}.nc')
+aimip_forcings = xr.open_dataset(Path(data_dir) / f'aimip-forcings-flat-{dataset}.nc')
 aimip_forcings_prepped, dct, msk = src.preprocess_by_variables(aimip_forcings.da)
 
 val_nanmask = val_forcing.sel(varlev='nanmask').where(val_forcing.sel(varlev='nanmask') == 1, other=0)
@@ -134,7 +138,7 @@ kl_weight = 1e-7
 n2n_weight = 1e-3
 pr_weight = 1e-3
 
-ne=400
+ne=200
 bs=4
 lr=1e-3
 
@@ -145,8 +149,9 @@ if training:
         activation=nn.GELU, 
         device=mps_device,
         seasonality_dim = seasonality_dim,
-        hidden_channels=[ 32],
-        squeeze_factors = [ 4],
+        seasonality_basis=seasonality_dim,
+        hidden_channels=[ 32 ],
+        squeeze_factors = [ 2],
         kl_weight = 5e-3,
         recon_weight = 1,
         prediction_weight = 0.5,
@@ -154,19 +159,20 @@ if training:
         statics= statics,
         variable_names= all_variable_names,
 
-        encoder_sfno_embed_dim = 128,
-        encoder_rank = 32,
-        encoder_conditioning_rank = 4,
+        encoder_sfno_embed_dim = 256,
+        encoder_rank = 256,
+        encoder_conditioning_rank = 2,
         encoder_conditioning_operator_type = 'spectral_fc',
     
-        decoder_sfno_embed_dim = 128,
-        decoder_rank = 64,
+        decoder_sfno_embed_dim = 256,
+        decoder_rank = 256,
         decoder_conditioning_rank = 2,
         decoder_conditioning_operator_type = 'spectral_fc',
 
         diffusion_sfno_embed_dim = 128,
-        diffusion_rank = 128,
-        diffusion_conditioning_rank = 2
+        diffusion_rank = 128, 
+        diffusion_conditioning_rank = 2,
+        diffusion_conditioning_operator_type= 'spectral_fc'
     )
 
     best_overall, best_recon, best_pred = pvae.train_model(

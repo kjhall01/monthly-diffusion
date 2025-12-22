@@ -70,7 +70,11 @@ class SpectralResample(nn.Module):
         dtype = x.dtype
         x = x.float()
 
-        with torch.autocast(device_type="cuda", enabled=False):
+        if x.device == 'cuda':
+            with torch.autocast(device_type="cuda", enabled=False):
+                x = self.forward_transform(x)
+                x = self.inverse_transform(x)
+        else:
             x = self.forward_transform(x)
             x = self.inverse_transform(x)
         x = x.type(dtype)
@@ -149,7 +153,12 @@ class SpectralConvS2(nn.Module):
         x = x.float()
         residual = x
 
-        with torch.autocast(device_type="cuda", enabled=False):
+        if x.device == 'cuda':
+            with torch.autocast(device_type="cuda", enabled=False):
+                x = self.spectral_resample.forward_transform(x)
+                if self.scale_residual:
+                    residual = self.spectral_resample.inverse_transform(x)
+        else:
             x = self.spectral_resample.forward_transform(x)
             if self.scale_residual:
                 residual = self.spectral_resample.inverse_transform(x)
@@ -159,7 +168,10 @@ class SpectralConvS2(nn.Module):
         else:
             x = torch.einsum(self.contract_func, x, self.weight)
 
-        with torch.autocast(device_type="cuda", enabled=False):
+        if x.device == 'cuda':
+            with torch.autocast(device_type="cuda", enabled=False):
+                x = self.spectral_resample.inverse_transform(x)
+        else:
             x = self.spectral_resample.inverse_transform(x)
 
         if hasattr(self, "bias"):
