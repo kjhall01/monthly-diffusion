@@ -1,4 +1,4 @@
-# Monthly Diffusion: Towards AI for Climate
+# Monthly Diffusion: Toward AI Emulation of Future Climates
 ####  Kyle Hall (kylehall@umd.edu); Maria Molina
 #### UMD Pareto Group (https://mariajmolina.github.io/) 
 
