@@ -17,8 +17,8 @@ Symbol | Formula | Name
 $L_1$ | $E\[ (X_t - \hat{X}_t)^2\]$ | Reconstruction MSE 
 $L_2$ | $E\[ (v - \hat{v})^2]$ | $v$-prediction MSE
 $L_3$ | $D_{kl}(p_\theta(z_t \| x_t, c_t) , \mathcal{N}(0, 1) )$ | KL Divergence
-$L_4$ | $(E\[ z_t\] - z_{pop})^2]$ | Latent Population Mean MSE 
-$L_5$ | ($E\[ (E\[ z_t\] - z_t)^2 \] - z_{pop})^2$ | Latent Population Std. Dev. MSE 
+$L_4$ | $(E\[ z_t\] - \mu_{pop})^2]$ | Latent Population Mean MSE 
+$L_5$ | ($E\[ (E\[ z_t\] - z_t)^2 \] - \sigma_{pop})^2$ | Latent Population Std. Dev. MSE 
 
 Our full weighted loss function is then:
 
