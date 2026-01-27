@@ -1,0 +1,46 @@
+name: mdiff-gpuv2
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - nodefaults
+
+dependencies:
+  # core
+  - python=3.12
+  - pip
+  - ipykernel=6.29
+
+  # array + data
+  - numpy=1.26
+  - pandas=2.2
+  - xarray=2024.7
+
+  # compute / chunking
+  - dask=2024.8
+
+  # netCDF IO
+  - netcdf4=1.7
+
+  # regridding + climate tooling
+  - xesmf=0.8
+  - metpy=1.7
+
+  # plotting + maps
+  - matplotlib=3.9
+  - cartopy=0.23
+
+  # stats / ML
+  - scipy=1.11
+  - scikit-learn=1.5
+
+  # timezone handling
+  - pytz=2024.1
+
+  # pytorch GPU (CUDA)
+  - pytorch=2.4
+  - pytorch-cuda=12.1
+
+  # pip-only
+  - pip:
+      - torch-harmonics~=0.7.4
