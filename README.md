@@ -1,6 +1,7 @@
 # Monthly Diffusion: Toward AI Emulation of Future Climates
 ####  Kyle Hall (kylehall@umd.edu); Maria Molina
 #### UMD Pareto Group (https://mariajmolina.github.io/) 
+#### [Technical Note describing](https://arxiv.org/abs/2604.13481) this work
 
 Monthly Diffusion v0.0.1 (MD1) implements v-prediction [1] type conditional diffusion in the latent space of a conditional variational autoencoder [2, 3, 4, 5]. The architecture of the Encoder/Decoder/Denoiser networks are based on Spherical Fourier Neural Operators [6]. They use spatial conditional RMS norms (akin to FiLM [7] or other conditional normalizations) and low-rank tensor operators (akin to fully-connected linear layers in SHT space) to explicitly allow cross-wavenumber "energy cascades". 
 
