@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/1119807852.svg)](https://doi.org/10.5281/zenodo.21117522)
+
 # Monthly Diffusion: Toward AI Emulation of Future Climates
 ####  Kyle Hall (kylehall@umd.edu); Maria Molina
 #### UMD Pareto Group (https://mariajmolina.github.io/) 
