@@ -4,7 +4,10 @@ from .autoencoder import (AutoencoderConfig, MeshHierarchyEncoder,
 from .denoiser import DenoiserConfig, SphericalDiT, SphericalTransformer
 from .coupled import CoupledAutoencoder, CoupledDenoiser
 from .geometry import build_mesh_hierarchy_context
-from .autoencoder_kyle import RefinedIcosahedralMeshEncoder, MeshStage
+
+from .preprocessor import Preprocessor
+from .encoder import RefinedIcosahedralMeshEncoder, MeshStage
+from .decoder import RefinedIcosahedralMeshDecoder
 
 __all__ = ["AutoencoderConfig", "MeshHierarchyEncoder", "MeshHierarchyDecoder",
            "MeshHierarchyAutoencoder", "DenoiserConfig", "SphericalDiT",
