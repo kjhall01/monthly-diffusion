@@ -8,6 +8,7 @@ from .geometry import build_mesh_hierarchy_context
 from .preprocessor import Preprocessor
 from .encoder import RefinedIcosahedralMeshEncoder, MeshStage
 from .decoder import RefinedIcosahedralMeshDecoder
+from .conditions import ScalarToLatent
 
 __all__ = ["AutoencoderConfig", "MeshHierarchyEncoder", "MeshHierarchyDecoder",
            "MeshHierarchyAutoencoder", "DenoiserConfig", "SphericalDiT",

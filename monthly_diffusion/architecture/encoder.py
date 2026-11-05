@@ -144,6 +144,6 @@ class RefinedIcosahedralMeshEncoder(nn.Module):
             h = F.silu(h)
 
             for refine in self.refiner_layers[i]:
-                h = F.silu(refine(h, h, self.refiner_maps[i]))
+                h = refine(h, h, self.refiner_maps[i])
 
         return self.latent_projection(h)

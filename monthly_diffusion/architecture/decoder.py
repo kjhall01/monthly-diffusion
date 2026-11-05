@@ -126,7 +126,7 @@ class RefinedIcosahedralMeshDecoder(nn.Module):
 
         for i, up in enumerate(self.up_layers):
             for refine in self.refiner_layers[i]:
-                h = F.silu(refine(h, h, self.refiner_maps[i]))
+                h = refine(h, h, self.refiner_maps[i])
 
             h = up(h, None, self.up_maps[i])
 

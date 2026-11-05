@@ -5,12 +5,12 @@ import torch
 import xarray as xr
 from torch.utils.data import DataLoader, TensorDataset
 from time import perf_counter
-from monthly_diffusion.architecture import MeshStage, RefinedIcosahedralMeshEncoder, Preprocessor, RefinedIcosahedralMeshDecoder 
+from monthly_diffusion.architecture import MeshStage, RefinedIcosahedralMeshEncoder, Preprocessor, RefinedIcosahedralMeshDecoder , ScalarToLatent
 
 DATA = Path("../downloads/mdv1-e3smv2-r1i1p1f1-training-validation-1deg-1958-2006.nc").expanduser()
 VARIABLES = [
     "sfcWind", "t2m", "tcwv", "mtpr", "mslp", "olr", "z500", "tau300_700",
-    "t850", "t500", "u200", "v200", "u50", "ssrd", "tau_x", "tau_y",
+    "t850", "t500", "u200", "v200", "u50", "ssrd", "tau_x", "tau_y"
 ]
 BATCH_SIZE = 8
 LATENT_CHANNELS = 32
@@ -24,15 +24,52 @@ train_da = (
     .to_array("variable")
 )
 
-preprocessor = Preprocessor(train_da)
-train_torch = preprocessor.xr_to_torch(train_da)
-train_torch = preprocessor.preprocess_torch(train_torch)
-del train_da # to clean up extra data
 
 val_da =  ( 
     ds[VARIABLES].sel(time=slice("1958-01", "1965-12"))
     .to_array("variable")
 )
+
+
+
+train_months = torch.tensor(train_da.time.month.values, dtype=torch.float32).reshape(-1, 1)
+val_months = torch.tensor(val_da.time.month.values, dtype=torch.float32).reshape(-1, 1)
+
+
+
+train_co2 = torch.tensor(
+    ds.sel(time=slice("1966-01", "2006-12")).co2.values,
+    dtype=torch.float32
+).reshape(-1, 1)
+
+co2_mean = train_co2.mean() 
+co2_std = train_co2.std() 
+
+val_co2 = torch.tensor(
+    ds.sel(time=slice("1958-01", "1965-12")).co2.values,
+    dtype=torch.float32
+).reshape(-1, 1)
+
+train_co2 = (train_co2 - co2_mean) / co2_std 
+val_co2 = (val_co2 - co2_mean) / co2_std 
+
+
+train_conditions = torch.hstack([
+    train_co2, 
+    torch.cos(train_months / 12 * 2 * torch.pi), 
+    torch.sin(train_months / 12 * 2 * torch.pi)
+])
+
+val_conditions = torch.hstack([
+    val_co2, 
+    torch.cos(val_months / 12 * 2 * torch.pi), 
+    torch.sin(val_months / 12 * 2 * torch.pi)
+])
+
+preprocessor = Preprocessor(train_da)
+train_torch = preprocessor.xr_to_torch(train_da)
+train_torch = preprocessor.preprocess_torch(train_torch)
+del train_da # to clean up extra data
 
 val_torch = preprocessor.xr_to_torch(val_da)
 val_torch = preprocessor.preprocess_torch(val_torch)
@@ -50,12 +87,13 @@ decoder_stages = [
     MeshStage(name="m4", refinement=4, width=128, refiners=4, map_to_next_stage="barycentric"),
 ]
 
-
+N_SCALARS = 3
+CONDITION_CHANNELS = 1
 
 encoder = RefinedIcosahedralMeshEncoder(
     hierarchy=encoder_stages, 
     preprocessor = preprocessor,
-    channels=preprocessor.channels, 
+    channels=preprocessor.channels + CONDITION_CHANNELS, 
     latent_channels=LATENT_CHANNELS,
 )
 
@@ -63,26 +101,50 @@ decoder = RefinedIcosahedralMeshDecoder(
     hierarchy=decoder_stages,
     preprocessor = preprocessor,
     channels = preprocessor.channels, 
-    latent_channels=LATENT_CHANNELS,
+    latent_channels=LATENT_CHANNELS + CONDITION_CHANNELS,
+)
+
+ec = ScalarToLatent(
+    N_SCALARS,
+    encoder.grid,
+    out_channels = CONDITION_CHANNELS
+)
+
+dc = ScalarToLatent(
+    N_SCALARS,
+    decoder.meshes[0],
+    out_channels = CONDITION_CHANNELS
 )
 
 
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
 # CPU tensors for the loaders; only the current batch goes to the device.
-train_loader = DataLoader(TensorDataset(train_torch.to(device)),
-                            batch_size=BATCH_SIZE, shuffle=True)
-val_loader = DataLoader(TensorDataset(val_torch.to(device)),
-                        batch_size=BATCH_SIZE, shuffle=False)
+train_loader = DataLoader(
+    TensorDataset(
+        train_torch.to(device),
+        train_conditions.to(device),
+    ), 
+    batch_size=BATCH_SIZE, shuffle=True
+)
+val_loader = DataLoader(
+    TensorDataset(
+        val_torch.to(device),
+        val_conditions.to(device),
+    ),
+    batch_size=BATCH_SIZE, shuffle=False
+)
 
 if not (torch.isfinite(preprocessor.mean_torch).all()
         and torch.isfinite(preprocessor.std_torch).all()
         and (preprocessor.std_torch > 0).all()):
     raise ValueError("Every variable needs a finite training mean and positive SD.")
-device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+
 
 encoder = encoder.to(device)
 decoder = decoder.to(device)
+ec.to(device)
+dc.to(device)
 
 n_params = sum(p.numel() for p in encoder.parameters() if p.requires_grad)
 print(f"Encoder trainable parameters: {n_params:,}")
@@ -91,8 +153,8 @@ print(f"Dncoder trainable parameters: {n_params:,}")
 preprocessor = preprocessor.to(device)
 
 # Train both sets of weights.
-optimizer = torch.optim.Adam(
-    list(encoder.parameters()) + list(decoder.parameters()),
+optimizer = torch.optim.AdamW(
+    list(encoder.parameters()) + list(decoder.parameters()) + list(ec.parameters()) + list(dc.parameters()),
     lr=1e-3,
 )
 
@@ -104,6 +166,8 @@ for epoch in range(epochs):
 
     encoder.train()
     decoder.train()
+    ec.train()
+    dc.train()
 
     total_loss = torch.zeros((), device=device)
     total_physical_mse = torch.zeros(
@@ -111,13 +175,17 @@ for epoch in range(epochs):
     )
     sample_count = 0
 
-    for (state,) in train_loader:
-        state = state.to(device)                    # [B, H*W, C]
+    for (state, conditions) in train_loader:
+        #state = state.to(device)                    # [B, H*W, C]
 
         optimizer.zero_grad(set_to_none=True)
 
-        latent = encoder(state)
-        reconstruction = decoder(latent)
+        in_conditions = ec(conditions)
+        state_plus_conditions = torch.cat([state, in_conditions], dim=-1)
+        latent = encoder(state_plus_conditions)
+        latent_conditions = dc(conditions)
+        latent_plus_conditions = torch.cat([latent, latent_conditions], dim=-1)
+        reconstruction = decoder(latent_plus_conditions)
 
         # Exclude invalid locations before squaring.
         error = torch.where(
@@ -149,14 +217,20 @@ for epoch in range(epochs):
     # Validation uses the same preprocessing and loss weights.
     encoder.eval()
     decoder.eval()
+    ec.eval()
+    dc.eval()
 
     val_mse_sum = torch.zeros(preprocessor.channels, device=device)
     val_samples = 0
 
     with torch.no_grad():
-        for (state,) in val_loader:
-            state = state.to(device)
-            reconstruction = decoder(encoder(state))
+        for (state, conditions ) in val_loader:
+            in_conditions = ec(conditions)
+            state_plus_conditions = torch.cat([state, in_conditions], dim=-1)
+            latent = encoder(state_plus_conditions)
+            latent_conditions = dc(conditions)
+            latent_plus_conditions = torch.cat([latent, latent_conditions], dim=-1)
+            reconstruction = decoder(latent_plus_conditions)
 
             error = torch.where(
                 preprocessor.valid_mask_torch,
@@ -177,9 +251,9 @@ for epoch in range(epochs):
 
     # Convert normalized RMSE into each variable's physical units.
     val_rmse = (
-        val_mse_per_variable.sqrt()
-        * preprocessor.std_torch.reshape(-1)
-    ).cpu().tolist()
+        val_mse_per_variable
+        * preprocessor.std_torch.reshape(-1).square()
+    ).sqrt().cpu().tolist()
 
     # Reading the metrics above waits for device computations to finish,
     # so these timings include the completed training and validation work.
