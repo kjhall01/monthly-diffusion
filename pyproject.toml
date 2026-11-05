@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monthly-diffusion"
+version = "0.1.0"
+description = "Spherical neural-network architectures for monthly climate emulation"
+requires-python = ">=3.10"
+
+# Repository layout: monthly_diffusion/ sits beside this pyproject.toml.
+# Namespace discovery also works without monthly_diffusion/__init__.py.
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["monthly_diffusion", "monthly_diffusion.*"]
+namespaces = true

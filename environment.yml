@@ -1,0 +1,44 @@
+# MonthlyDiffusion development on Apple Silicon (native osx-arm64 Conda).
+# Create:   conda env create -f environment.yml
+# Activate: conda activate monthly-diffusion
+# This is a development specification, not an exact reproducibility lockfile.
+name: monthly-diffusion
+channels:
+  - conda-forge
+  - nodefaults
+
+dependencies:
+  - python=3.12
+  - pip
+
+  # Numerics, mesh construction, and labeled climate arrays
+  - numpy
+  - scipy
+  - pandas
+  - xarray
+  - cftime
+
+  # NetCDF / Zarr files and lazy access to WeatherBench2 on Google Cloud
+  # Match the preprocessing repository's Zarr/codec constraints.
+  - netcdf4
+  - h5netcdf
+  - "zarr>=2.18,<3"
+  - "numcodecs>=0.15,<0.16"
+  - dask
+  - distributed
+  - fsspec
+  - gcsfs
+
+  # Maps and scientific plotting
+  - matplotlib
+  - cartopy
+  - cmocean
+
+  # Interactive development and checks
+  - jupyterlab
+  - ipykernel
+  - ipywidgets
+  - tqdm
+  - pyyaml
+  - pytest
+  - pytorch>=2.5,<3
