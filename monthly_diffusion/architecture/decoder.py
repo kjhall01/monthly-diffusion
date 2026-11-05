@@ -23,7 +23,8 @@ class RefinedIcosahedralMeshDecoder(nn.Module):
         time: str = 'time',
         lat: str = "lat", 
         lon: str = "lon", 
-        variable: str = "variable"
+        variable: str = "variable",
+        n_statics: int = 2,
     ):
         super().__init__()
 
@@ -32,7 +33,6 @@ class RefinedIcosahedralMeshDecoder(nn.Module):
         self.channels = channels 
         self.preprocessor = preprocessor
         self.grid = self.preprocessor.grid 
-
         self.meshes = []
         self.faces = [] 
         for stage in hierarchy:
@@ -40,8 +40,8 @@ class RefinedIcosahedralMeshDecoder(nn.Module):
             self.meshes.append(mesh)
             self.faces.append(faces)
 
-        mesh_to_grid = build_radius_map(
-            self.meshes[-1], self.grid,
+        mesh_to_grid = build_barycentric_map(
+            self.meshes[-1], self.faces[-1], self.grid,
             name = f"{hierarchy[0].name}_to_grid"
         )
 
@@ -92,7 +92,7 @@ class RefinedIcosahedralMeshDecoder(nn.Module):
             else: 
                 down_ecc = EdgeConditionedConv(
                     in_dim=hierarchy[-1].width,
-                    out_dim=self.channels,
+                    out_dim=hierarchy[-1].width,
                     edge_attr_dim=map.edge_set.edge_attr_dim,
                     hidden_dim=grid_kernel_hidden_dim,
                     aggregation="mean",
@@ -116,21 +116,32 @@ class RefinedIcosahedralMeshDecoder(nn.Module):
             self.activations.append(nn.SiLU())
         self.refiner_layers = nn.ModuleList(self.refiner_layers)
         self.up_layers = nn.ModuleList(self.up_layers)
-        self.latent_expand = nn.Linear(
-            latent_channels, hierarchy[0].width, 
+
+        self.output_head = nn.Sequential(
+            nn.Linear(hierarchy[-1].width + 3 + n_statics, 128),
+            nn.SiLU(),
+            nn.Linear(128, self.channels),
         )
 
+        self.latent_expand = nn.Linear(self.latent_channels, hierarchy[0].width)
 
-    def forward(self, latent):
+
+    def forward(self, latent, statics):
         h = self.latent_expand(latent)                  # [B, m2_nodes, m2_width]
 
         for i, up in enumerate(self.up_layers):
             for refine in self.refiner_layers[i]:
-                h = refine(h, h, self.refiner_maps[i])
+                h = refine(F.silu(h), h, self.refiner_maps[i])
 
             h = up(h, None, self.up_maps[i])
 
             if i < len(self.up_layers) - 1:
                 h = F.silu(h)
-        return h                                       # [B, H*W, variables]
+        xyz = self.grid.xyz[None].expand(h.shape[0], -1, -1).to(h.device)
+        statics = statics[None].expand(h.shape[0], -1, -1)
+
+        reconstruction = self.output_head(
+            torch.cat([h, xyz, statics], dim=-1)
+        )
+        return reconstruction                                       # [B, H*W, variables]
 

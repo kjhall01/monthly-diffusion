@@ -31,7 +31,8 @@ class RefinedIcosahedralMeshEncoder(nn.Module):
         time: str = 'time',
         lat: str = "lat", 
         lon: str = "lon", 
-        variable: str = "variable"
+        variable: str = "variable",
+        n_statics: int = 2,
     ):
         super().__init__()
 
@@ -128,15 +129,26 @@ class RefinedIcosahedralMeshEncoder(nn.Module):
             hierarchy[-1].width, latent_channels
         )
 
+        self.input_head = nn.Sequential(
+            nn.Linear(self.channels + 3 + n_statics, 128),
+            nn.SiLU(),
+            nn.Linear(128, self.channels),
+        )
 
-
-    def forward(self, state):
+    def forward(self, state, statics):
         # state: [B, H*W, C]
         h = state
 
         # h is already normalized and filled.
         # A grid node can send a message if it has at least one valid variable.
         grid_mask = self.preprocessor.valid_mask_torch.any(dim=-1).expand(h.shape[0], -1)
+        
+        xyz = self.grid.xyz[None].expand(h.shape[0], -1, -1).to(h.device)
+        statics = statics[None].expand(h.shape[0], -1, -1)
+
+        h = self.input_head(
+            torch.cat([h, xyz, statics], dim=-1)
+        )
 
         for i, down in enumerate(self.down_layers):
             source_mask = grid_mask if i == 0 else None
@@ -144,6 +156,6 @@ class RefinedIcosahedralMeshEncoder(nn.Module):
             h = F.silu(h)
 
             for refine in self.refiner_layers[i]:
-                h = refine(h, h, self.refiner_maps[i])
+                h = refine(F.silu(h), h, self.refiner_maps[i])
 
         return self.latent_projection(h)

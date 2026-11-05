@@ -68,11 +68,41 @@ class Preprocessor(nn.Module):
 
         # Exclude invalid locations before calculating statistics.
         valid_train = train_da.where(self.valid_mask_xr)
-        weighted = valid_train.weighted(self.latitude_weights_xr)
+
+
+        # Fixed background: average over training time and longitude.
+        # Retains latitude dependence; no month dependence.
+        zonal_mean = valid_train.mean(dim=(time, lon))
+        # [lat, variable]
+
+        # Broadcast that background onto every longitude.
+        self.zonal_mean_xr = (
+            zonal_mean
+            .broadcast_like(valid_train.isel({time: 0}, drop=True))
+            .transpose(lat, lon, variable)
+        )
+        # [lat, lon, variable]
+
+        # A latitude band may have no valid values for a variable.
+        # Those locations are excluded by the validity mask anyway.
+        self.zonal_mean_xr = self.zonal_mean_xr.fillna(0.0)
+
+
+
+        weighted = (valid_train - self.zonal_mean_xr).weighted(self.latitude_weights_xr)
 
         self.mean_xr = weighted.mean(dim=(time, lat, lon))
         self.std_xr = weighted.std(dim=(time, lat, lon))
         # Both: [variable]
+
+        self.register_buffer(
+            "zonal_mean_torch",
+            torch.tensor(
+                self.zonal_mean_xr.values,
+                dtype=torch.float32,
+            ).reshape(1, -1, self.channels),
+        )
+        # [1, H*W, C]
 
         self.register_buffer('mean_torch', torch.tensor(
                 self.mean_xr.values, dtype=torch.float32
@@ -83,6 +113,10 @@ class Preprocessor(nn.Module):
                 self.std_xr.values, dtype=torch.float32
             ).reshape(1, 1, -1) 
         )
+
+        # [time, lat, lon, variable], with invalid locations excluded.
+        valid_train = train_da.where(self.valid_mask_xr)
+
 
 
     def xr_to_torch(self, da, *, device=None, time='time', lat="lat", lon="lon", variable="variable"):
@@ -141,6 +175,7 @@ class Preprocessor(nn.Module):
         )
 
     def preprocess_torch(self, x):
+        x = x - self.zonal_mean_torch
         filled = torch.where(self.valid_mask_torch, x, self.mean_torch)
         ret = (filled - self.mean_torch) / self.std_torch
         return ret
@@ -148,4 +183,4 @@ class Preprocessor(nn.Module):
     def postprocess_torch(self, prediction):
         physical = prediction * self.std_torch + self.mean_torch
         physical = physical.masked_fill(~self.valid_mask_torch, float("nan"))
-        return physical
+        return physical + self.zonal_mean_torch

@@ -5,7 +5,7 @@ import torch
 import xarray as xr
 from torch.utils.data import DataLoader, TensorDataset
 from time import perf_counter
-from monthly_diffusion.architecture import MeshStage, RefinedIcosahedralMeshEncoder, Preprocessor, RefinedIcosahedralMeshDecoder , ScalarToLatent
+from monthly_diffusion.architecture import MeshStage, RefinedIcosahedralMeshEncoder, Preprocessor, RefinedIcosahedralMeshDecoder , ScalarToLatentChannels
 
 DATA = Path("../downloads/mdv1-e3smv2-r1i1p1f1-training-validation-1deg-1958-2006.nc").expanduser()
 VARIABLES = [
@@ -30,7 +30,14 @@ val_da =  (
     .to_array("variable")
 )
 
-
+statics = xr.concat([
+    ds.lsm,
+    (ds.phi_s - ds.phi_s.mean()) / ds.phi_s.std() 
+], 'variable').assign_coords({'variable': ['lsm', 'phi_s']})
+statics = torch.tensor(
+    statics.stack(point=('lat', 'lon')).transpose('point', 'variable').values, 
+    dtype=torch.float32
+)
 
 train_months = torch.tensor(train_da.time.month.values, dtype=torch.float32).reshape(-1, 1)
 val_months = torch.tensor(val_da.time.month.values, dtype=torch.float32).reshape(-1, 1)
@@ -76,19 +83,22 @@ val_torch = preprocessor.preprocess_torch(val_torch)
 del val_da # to clean up extra data
 
 encoder_stages = [
-    MeshStage(name="m4", refinement=4, width=128, refiners=4, map_to_next_stage="radius"),
-    MeshStage(name="m3", refinement=3, width=128, refiners=6, map_to_next_stage="radius"),
-    MeshStage(name="m2", refinement=2, width=128, refiners=6, map_to_next_stage="radius"),
+#    MeshStage(name="m5", refinement=5, width=128, refiners=2, map_to_next_stage="radius"),
+    MeshStage(name="m4", refinement=4, width=32, refiners=12, map_to_next_stage="radius"),
+    MeshStage(name="m3", refinement=3, width=64, refiners=12, map_to_next_stage="radius"),
+    MeshStage(name="m2", refinement=2, width=128, refiners=12, map_to_next_stage="radius"),
 ]
 
 decoder_stages = [
-    MeshStage(name="m2", refinement=2, width=128, refiners=6, map_to_next_stage="barycentric"),
-    MeshStage(name="m3", refinement=3, width=128, refiners=6, map_to_next_stage="barycentric"),
-    MeshStage(name="m4", refinement=4, width=128, refiners=4, map_to_next_stage="barycentric"),
+    MeshStage(name="m2", refinement=2, width=128, refiners=12, map_to_next_stage="barycentric"),
+    MeshStage(name="m3", refinement=3, width=64, refiners=12, map_to_next_stage="barycentric"),
+    MeshStage(name="m4", refinement=4, width=32, refiners=12, map_to_next_stage="barycentric"),
+#    MeshStage(name="m5", refinement=5, width=128, refiners=2, map_to_next_stage="barycentric"),
+
 ]
 
 N_SCALARS = 3
-CONDITION_CHANNELS = 1
+CONDITION_CHANNELS = LATENT_CHANNELS
 
 encoder = RefinedIcosahedralMeshEncoder(
     hierarchy=encoder_stages, 
@@ -104,13 +114,13 @@ decoder = RefinedIcosahedralMeshDecoder(
     latent_channels=LATENT_CHANNELS + CONDITION_CHANNELS,
 )
 
-ec = ScalarToLatent(
+ec = ScalarToLatentChannels(
     N_SCALARS,
     encoder.grid,
     out_channels = CONDITION_CHANNELS
 )
 
-dc = ScalarToLatent(
+dc = ScalarToLatentChannels(
     N_SCALARS,
     decoder.meshes[0],
     out_channels = CONDITION_CHANNELS
@@ -145,6 +155,7 @@ encoder = encoder.to(device)
 decoder = decoder.to(device)
 ec.to(device)
 dc.to(device)
+statics = statics.to(device)
 
 n_params = sum(p.numel() for p in encoder.parameters() if p.requires_grad)
 print(f"Encoder trainable parameters: {n_params:,}")
@@ -182,10 +193,10 @@ for epoch in range(epochs):
 
         in_conditions = ec(conditions)
         state_plus_conditions = torch.cat([state, in_conditions], dim=-1)
-        latent = encoder(state_plus_conditions)
+        latent = encoder(state_plus_conditions, statics)
         latent_conditions = dc(conditions)
         latent_plus_conditions = torch.cat([latent, latent_conditions], dim=-1)
-        reconstruction = decoder(latent_plus_conditions)
+        reconstruction = decoder(latent_plus_conditions, statics)
 
         # Exclude invalid locations before squaring.
         error = torch.where(
@@ -220,18 +231,25 @@ for epoch in range(epochs):
     ec.eval()
     dc.eval()
 
+    
     val_mse_sum = torch.zeros(preprocessor.channels, device=device)
+    val_physical_mse_sum = torch.zeros(preprocessor.channels, device=device)
     val_samples = 0
 
     with torch.no_grad():
-        for (state, conditions ) in val_loader:
+        for state, conditions in val_loader:
+            state = state.to(device)
+            conditions = conditions.to(device)
+
             in_conditions = ec(conditions)
             state_plus_conditions = torch.cat([state, in_conditions], dim=-1)
-            latent = encoder(state_plus_conditions)
+            latent = encoder(state_plus_conditions, statics)
+
             latent_conditions = dc(conditions)
             latent_plus_conditions = torch.cat([latent, latent_conditions], dim=-1)
-            reconstruction = decoder(latent_plus_conditions)
+            reconstruction = decoder(latent_plus_conditions, statics)
 
+            # Normalized error: comparable to the training objective.
             error = torch.where(
                 preprocessor.valid_mask_torch,
                 reconstruction - state,
@@ -239,24 +257,37 @@ for epoch in range(epochs):
             )
             mse_per_sample = (
                 error.square() * preprocessor.loss_weights
-            ).sum(dim=1)                        # [B, C]
+            ).sum(dim=1)  # [B, C]
 
             val_mse_sum += mse_per_sample.sum(dim=0)
+
+            # Restore physical units AND the fixed zonal background.
+            physical_state = preprocessor.postprocess_torch(state)
+            physical_reconstruction = preprocessor.postprocess_torch(reconstruction)
+
+            # Postprocessing restores NaNs at invalid locations;
+            # exclude those before squaring.
+            physical_error = torch.where(
+                preprocessor.valid_mask_torch,
+                physical_reconstruction - physical_state,
+                0.0,
+            )
+            physical_mse_per_sample = (
+                physical_error.square() * preprocessor.loss_weights
+            ).sum(dim=1)  # [B, C]
+
+            val_physical_mse_sum += physical_mse_per_sample.sum(dim=0)
             val_samples += state.shape[0]
 
     val_mse_per_variable = val_mse_sum / val_samples
     val_loss = val_mse_per_variable.mean().item()
-
     epoch_loss = (total_loss / sample_count).item()
 
-    # Convert normalized RMSE into each variable's physical units.
+    # Average squared errors over all validation samples, THEN take the root.
     val_rmse = (
-        val_mse_per_variable
-        * preprocessor.std_torch.reshape(-1).square()
+        val_physical_mse_sum / val_samples
     ).sqrt().cpu().tolist()
 
-    # Reading the metrics above waits for device computations to finish,
-    # so these timings include the completed training and validation work.
     epoch_seconds = perf_counter() - epoch_start
     elapsed_seconds = perf_counter() - training_start
     minutes, seconds = divmod(int(elapsed_seconds), 60)
