@@ -84,21 +84,21 @@ del val_da # to clean up extra data
 
 encoder_stages = [
 #    MeshStage(name="m5", refinement=5, width=128, refiners=2, map_to_next_stage="radius"),
-    MeshStage(name="m4", refinement=4, width=32, refiners=12, map_to_next_stage="radius"),
-    MeshStage(name="m3", refinement=3, width=64, refiners=12, map_to_next_stage="radius"),
-    MeshStage(name="m2", refinement=2, width=128, refiners=12, map_to_next_stage="radius"),
+    MeshStage(name="m4", refinement=4, width=64, refiners=1, map_to_next_stage="radius"),
+    MeshStage(name="m3", refinement=3, width=64, refiners=1, map_to_next_stage="radius"),
+    MeshStage(name="m2", refinement=2, width=64, refiners=1, map_to_next_stage="radius"),
 ]
 
 decoder_stages = [
-    MeshStage(name="m2", refinement=2, width=128, refiners=12, map_to_next_stage="barycentric"),
-    MeshStage(name="m3", refinement=3, width=64, refiners=12, map_to_next_stage="barycentric"),
-    MeshStage(name="m4", refinement=4, width=32, refiners=12, map_to_next_stage="barycentric"),
+    MeshStage(name="m2", refinement=2, width=64, refiners=1, map_to_next_stage="barycentric"),
+    MeshStage(name="m3", refinement=3, width=64, refiners=1, map_to_next_stage="barycentric"),
+    MeshStage(name="m4", refinement=4, width=64, refiners=1, map_to_next_stage="barycentric"),
 #    MeshStage(name="m5", refinement=5, width=128, refiners=2, map_to_next_stage="barycentric"),
 
 ]
 
 N_SCALARS = 3
-CONDITION_CHANNELS = LATENT_CHANNELS
+CONDITION_CHANNELS = 3
 
 encoder = RefinedIcosahedralMeshEncoder(
     hierarchy=encoder_stages, 
@@ -303,3 +303,148 @@ for epoch in range(epochs):
 
     for variable, rmse in zip(preprocessor.variables, val_rmse):
         print(f"  {variable}: validation RMSE = {rmse:.6g}")
+
+
+
+
+
+###### CO2 RESPONSE 
+import numpy as np
+import matplotlib.pyplot as plt
+
+encoder.eval()
+decoder.eval()
+ec.eval()
+dc.eval()
+
+# Recover physical ppm from your standardized validation conditions.
+co2_center = float(co2_mean.detach().cpu())
+co2_scale = float(co2_std.detach().cpu())
+
+validation_ppm = (
+    val_conditions[:, 0].detach().cpu() * co2_scale + co2_center
+)
+reference_ppm = float(validation_ppm.median())
+
+# Constant decoder CO₂ values. Adjust as desired.
+sweep_ppm = np.array(sorted(set([
+    280.0, 320.0, 360.0, 400.0, 560.0, 800.0, reference_ppm
+])))
+reference_index = int(np.argmin(abs(sweep_ppm - reference_ppm)))
+
+n_variables = preprocessor.channels
+sweep_sum = torch.zeros(
+    len(sweep_ppm), n_variables, device=device
+)
+truth_sum = torch.zeros(n_variables, device=device)
+reconstruction_sum = torch.zeros(n_variables, device=device)
+n_samples = 0
+
+# Weights sum to one over valid locations, separately per variable.
+weights = preprocessor.loss_weights
+valid = preprocessor.valid_mask_torch
+
+def physical_global_mean(normalized):
+    """[B, N, C] standardized fields -> [B, C] physical means."""
+    physical = preprocessor.postprocess_torch(normalized)
+    physical = torch.where(valid, physical, 0.0)
+    return (physical * weights).sum(dim=1)
+
+with torch.no_grad():
+    for state, conditions in val_loader:
+        state = state.to(device)
+        conditions = conditions.to(device)
+
+        # Encode ONCE using the actual conditions of each validation sample.
+        latent = encoder(
+            torch.cat([state, ec(conditions)], dim=-1),
+            statics,
+        )
+
+        truth_sum += physical_global_mean(state).sum(dim=0)
+
+        # Ordinary reconstruction at each sample's actual CO₂.
+        actual_reconstruction = decoder(
+            torch.cat([latent, dc(conditions)], dim=-1),
+            statics,
+        )
+        reconstruction_sum += physical_global_mean(
+            actual_reconstruction
+        ).sum(dim=0)
+
+        # Same latent, same month; only decoder CO₂ changes.
+        for i, ppm in enumerate(sweep_ppm):
+            changed_conditions = conditions.clone()
+            changed_conditions[:, 0] = (
+                float(ppm) - co2_center
+            ) / co2_scale
+
+            prediction = decoder(
+                torch.cat(
+                    [latent, dc(changed_conditions)], dim=-1
+                ),
+                statics,
+            )
+            sweep_sum[i] += physical_global_mean(
+                prediction
+            ).sum(dim=0)
+
+        n_samples += state.shape[0]
+
+truth_mean = (truth_sum / n_samples).cpu().numpy()
+actual_mean = (reconstruction_sum / n_samples).cpu().numpy()
+sweep_mean = (sweep_sum / n_samples).cpu().numpy()
+
+# Response relative to decoding the SAME latents at reference_ppm.
+response = sweep_mean - sweep_mean[reference_index]
+
+# Genuine reconstruction bias: decoder uses actual sample CO₂.
+actual_bias = actual_mean - truth_mean
+
+# Counterfactual offset from the observed validation mean.
+# This is NOT an error against known counterfactual truth.
+reference_offset = sweep_mean - truth_mean[None, :]
+
+train_ppm = (
+    train_conditions[:, 0].detach().cpu() * co2_scale + co2_center
+)
+train_min, train_max = float(train_ppm.min()), float(train_ppm.max())
+
+print(f"\nTraining CO₂ range: {train_min:.1f}–{train_max:.1f} ppm")
+print(f"Constant-CO₂ response baseline: {reference_ppm:.1f} ppm")
+
+for j, variable in enumerate(preprocessor.variables):
+    print(f"\n{variable}: actual-CO₂ global-mean bias = {actual_bias[j]:+.5g}")
+    print(" CO₂ ppm | global mean | Δ from baseline | offset from validation")
+    for i, ppm in enumerate(sweep_ppm):
+        print(
+            f" {ppm:7.1f} | {sweep_mean[i, j]:11.5g} | "
+            f"{response[i, j]:+15.5g} | {reference_offset[i, j]:+22.5g}"
+        )
+
+# Plot T2M. Change this name to inspect another variable.
+variable = "t2m"
+j = list(preprocessor.variables).index(variable)
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+
+axes[0].plot(sweep_ppm, sweep_mean[:, j], "o-", label="Fixed validation latents")
+axes[0].axhline(
+    truth_mean[j], color="black", linestyle="--",
+    label="Observed validation mean",
+)
+axes[0].set_ylabel(f"{variable}: global mean, physical units")
+axes[0].legend()
+
+axes[1].plot(sweep_ppm, response[:, j], "o-")
+axes[1].axhline(0, color="black", linewidth=0.8)
+axes[1].set_ylabel(f"{variable}: change from {reference_ppm:.1f} ppm")
+
+for ax in axes:
+    ax.axvspan(train_min, train_max, color="gray", alpha=0.15)
+    ax.set_xlabel("Decoder CO₂ (ppm)")
+    ax.grid(alpha=0.2)
+
+fig.suptitle("Decoder CO₂ sensitivity — fixed validation latents and months")
+fig.tight_layout()
+plt.show()
