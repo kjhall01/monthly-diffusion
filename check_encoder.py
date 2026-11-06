@@ -172,6 +172,28 @@ optimizer = torch.optim.AdamW(
 epochs = 200
 training_start = perf_counter()
 
+import csv
+from datetime import datetime
+
+# Separate output folder for each run.
+run_dir = Path("output") / datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+run_dir.mkdir(parents=True, exist_ok=True)
+
+log_path = run_dir / "loss.csv"
+checkpoint_path = run_dir / "best.pt"
+
+with log_path.open("w", newline="") as f:
+    csv.writer(f).writerow([
+        "epoch", "train_mse", "val_mse",
+        *[f"val_rmse_{v}" for v in preprocessor.variables],
+    ])
+
+best_val_loss = float("inf")
+epochs_without_improvement = 0
+patience = 5
+
+print(f"Saving results to {run_dir}")
+
 for epoch in range(epochs):
     epoch_start = perf_counter()
 
@@ -304,9 +326,56 @@ for epoch in range(epochs):
     for variable, rmse in zip(preprocessor.variables, val_rmse):
         print(f"  {variable}: validation RMSE = {rmse:.6g}")
 
+    # Append one row per epoch; closing the file flushes it to disk.
+    with log_path.open("a", newline="") as f:
+        csv.writer(f).writerow([
+            epoch + 1, epoch_loss, val_loss, *val_rmse,
+        ])
 
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        epochs_without_improvement = 0
 
+        torch.save({
+            "epoch": epoch + 1,
+            "val_loss": val_loss,
+            "encoder": encoder.state_dict(),
+            "decoder": decoder.state_dict(),
+            "ec": ec.state_dict(),
+            "dc": dc.state_dict(),
+            "preprocessor": preprocessor.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "co2_mean": co2_mean,
+            "co2_std": co2_std,
+            "statics": statics,
+        }, checkpoint_path)
 
+        print(f"Saved best checkpoint: val MSE = {val_loss:.6f}")
+
+    else:
+        epochs_without_improvement += 1
+        print(f"No improvement: {epochs_without_improvement}/{patience}")
+
+        if epochs_without_improvement >= patience:
+            print(f"Early stopping. Best val MSE = {best_val_loss:.6f}")
+            break
+
+checkpoint = torch.load(
+    checkpoint_path,
+    map_location=device,
+    weights_only=True,
+)
+
+encoder.load_state_dict(checkpoint["encoder"])
+decoder.load_state_dict(checkpoint["decoder"])
+ec.load_state_dict(checkpoint["ec"])
+dc.load_state_dict(checkpoint["dc"])
+preprocessor.load_state_dict(checkpoint["preprocessor"])
+
+print(
+    f"Restored epoch {checkpoint['epoch']} "
+    f"(val MSE = {checkpoint['val_loss']:.6f})"
+)
 
 ###### CO2 RESPONSE 
 import numpy as np
