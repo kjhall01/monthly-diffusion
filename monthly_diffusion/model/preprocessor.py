@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import xarray as xr 
 import numpy as np 
-from .geometry import make_icosphere, build_barycentric_map, build_radius_map, build_mesh_adjacency_map, make_equiangular_grid_from_xarray
+from ..architecture.geometry import make_icosphere, build_barycentric_map, build_radius_map, build_mesh_adjacency_map, make_equiangular_grid_from_xarray
 
 
 class Preprocessor(nn.Module):

@@ -5,20 +5,28 @@ import xarray as xr
 import numpy as np 
 from dataclasses import dataclass
 
-from .layers.ecc import EdgeConditionedConv
-from .geometry import SphericalGraph, make_icosphere, build_barycentric_map, build_radius_map, build_mesh_adjacency_map, make_equiangular_grid_from_xarray
+from ..architecture.geometry import SphericalGraph, make_icosphere, build_barycentric_map, build_radius_map, build_mesh_adjacency_map, make_equiangular_grid_from_xarray
+from ..architecture.layers.ecc import EdgeConditionedConv
 from .preprocessor import Preprocessor
 
+@dataclass(frozen=True)
+class MeshStage:
+    name: str
+    refinement: int
+    width: int
+    refiners: int = 4
+    activation: str = "silu"
+    kernel_mlp_hidden_dim: int = 128
+    map_to_next_stage: str = "radius"
 
-
-class RefinedIcosahedralMeshDecoder(nn.Module):
+class RefinedIcosahedralMeshEncoder(nn.Module):
 
     def __init__(
         self,
         hierarchy: list,
-        preprocessor: Preprocessor, 
-        channels: int = 16,
+        preprocessor: Preprocessor,
         latent_channels: int = 256,
+        channels: int = 16,
         grid_kernel_hidden_dim: int = 128,
         time: str = 'time',
         lat: str = "lat", 
@@ -28,24 +36,26 @@ class RefinedIcosahedralMeshDecoder(nn.Module):
     ):
         super().__init__()
 
-        self.n_meshes = len(hierarchy)
-        self.latent_channels = latent_channels 
         self.channels = channels 
+        self.latent_channels = latent_channels
         self.preprocessor = preprocessor
         self.grid = self.preprocessor.grid 
+        self.n_meshes = len(hierarchy)
+
         self.meshes = []
         self.faces = [] 
+
         for stage in hierarchy:
             mesh, faces = make_icosphere(level=stage.refinement, name=stage.name)     
             self.meshes.append(mesh)
             self.faces.append(faces)
 
-        mesh_to_grid = build_barycentric_map(
-            self.meshes[-1], self.faces[-1], self.grid,
-            name = f"{hierarchy[0].name}_to_grid"
+        grid_to_mesh = build_radius_map(
+            self.grid, self.meshes[0],
+            name = f"grid_to_{hierarchy[0].name}"
         )
 
-        self.up_maps = [] 
+        self.down_maps = [grid_to_mesh] 
         for _, stage in enumerate(hierarchy): 
             if _ < len(hierarchy)-1:
                 if stage.map_to_next_stage == "radius":
@@ -60,8 +70,7 @@ class RefinedIcosahedralMeshDecoder(nn.Module):
                     )
                 else:
                     raise ValueError(f"invalid mesh-to-mesh transfer policy: {stage.map_to_next_stage}")
-                self.up_maps.append(mapping)
-        self.up_maps.append(mesh_to_grid)
+                self.down_maps.append(mapping)
         
 
         self.refiner_maps = [
@@ -75,30 +84,30 @@ class RefinedIcosahedralMeshDecoder(nn.Module):
             )
         ]
        
-        self.up_layers = [] 
+        self.down_layers = [] 
         self.refiner_layers = []
         self.activations = []
 
-        for _1, map in enumerate(self.up_maps):
-            if _1 < len(self.up_maps)-1: 
+        for _1, map in enumerate(self.down_maps):
+            if _1 == 0: 
                 down_ecc = EdgeConditionedConv(
-                    in_dim=hierarchy[_1].width,
-                    out_dim=hierarchy[_1+1].width,
-                    edge_attr_dim=map.edge_set.edge_attr_dim,
-                    hidden_dim=hierarchy[-1].kernel_mlp_hidden_dim,
-                    aggregation="mean",
-                    residual=False,
-                )
-            else: 
-                down_ecc = EdgeConditionedConv(
-                    in_dim=hierarchy[-1].width,
-                    out_dim=hierarchy[-1].width,
+                    in_dim=self.channels,
+                    out_dim=hierarchy[0].width,
                     edge_attr_dim=map.edge_set.edge_attr_dim,
                     hidden_dim=grid_kernel_hidden_dim,
                     aggregation="mean",
                     residual=False,
                 )
-            self.up_layers.append(down_ecc)
+            else: 
+                down_ecc = EdgeConditionedConv(
+                    in_dim=hierarchy[_1-1].width,
+                    out_dim=hierarchy[_1].width,
+                    edge_attr_dim=map.edge_set.edge_attr_dim,
+                    hidden_dim=hierarchy[_1].kernel_mlp_hidden_dim,
+                    aggregation="mean",
+                    residual=False,
+                )
+            self.down_layers.append(down_ecc)
 
             refiners_1 = nn.ModuleList([
                 EdgeConditionedConv(
@@ -115,33 +124,38 @@ class RefinedIcosahedralMeshDecoder(nn.Module):
 
             self.activations.append(nn.SiLU())
         self.refiner_layers = nn.ModuleList(self.refiner_layers)
-        self.up_layers = nn.ModuleList(self.up_layers)
+        self.down_layers = nn.ModuleList(self.down_layers)
+        self.latent_projection = nn.Linear(
+            hierarchy[-1].width, latent_channels
+        )
 
-        self.output_head = nn.Sequential(
-            nn.Linear(hierarchy[-1].width + 3 + n_statics, 128),
+        self.input_head = nn.Sequential(
+            nn.Linear(self.channels + 3 + n_statics, 128),
             nn.SiLU(),
             nn.Linear(128, self.channels),
         )
 
-        self.latent_expand = nn.Linear(self.latent_channels, hierarchy[0].width)
+    def forward(self, state, statics):
+        # state: [B, H*W, C]
+        h = state
 
-
-    def forward(self, latent, statics):
-        h = self.latent_expand(latent)                  # [B, m2_nodes, m2_width]
-
-        for i, up in enumerate(self.up_layers):
-            for refine in self.refiner_layers[i]:
-                h = refine(F.silu(h), h, self.refiner_maps[i])
-
-            h = up(h, None, self.up_maps[i])
-
-            if i < len(self.up_layers) - 1:
-                h = F.silu(h)
+        # h is already normalized and filled.
+        # A grid node can send a message if it has at least one valid variable.
+        grid_mask = self.preprocessor.valid_mask_torch.any(dim=-1).expand(h.shape[0], -1)
+        
         xyz = self.grid.xyz[None].expand(h.shape[0], -1, -1).to(h.device)
         statics = statics[None].expand(h.shape[0], -1, -1)
 
-        reconstruction = self.output_head(
+        h = self.input_head(
             torch.cat([h, xyz, statics], dim=-1)
         )
-        return reconstruction                                       # [B, H*W, variables]
 
+        for i, down in enumerate(self.down_layers):
+            source_mask = grid_mask if i == 0 else None
+            h = down(h, None, self.down_maps[i], source_mask=source_mask)
+            h = F.silu(h)
+
+            for refine in self.refiner_layers[i]:
+                h = refine(F.silu(h), h, self.refiner_maps[i])
+
+        return self.latent_projection(h)
