@@ -42,3 +42,6 @@ dependencies:
   - pyyaml
   - pytest
   - pytorch>=2.5,<3
+
+  - pip:
+    - random_word
