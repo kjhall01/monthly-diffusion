@@ -77,12 +77,10 @@ def test_new_run_only_changes_support_and_keeps_legacy_config_identity():
     assert "--device mps --threads 4 --load-in-memory" in launcher
 
 
-def test_staged_training_forecast_and_reference_share_saved_mask(tiny_data,tmp_path):
+def test_staged_training_forecast_and_reference_share_saved_mask(tiny_data,tmp_path,train_small_run):
     a,o,s,c,config = with_extra_ocean_cells(tiny_data)
-    model = MonthlyDiffusionV1(statics=s,config=config,device="cpu")
-    model.train(a.isel(time=slice(12)),o.isel(time=slice(12)),
-        validation=(a.isel(time=slice(12,None)),o.isel(time=slice(12,None))),
-        co2=c,directory=tmp_path/"run")
+    model = train_small_run((a,o,s,c,config), tmp_path/"run")
+    model.save(tmp_path/"run/model.pt")
     restored = MonthlyDiffusionV1.load(tmp_path/"run/model.pt",device="cpu")
     xr.testing.assert_equal(model.preprocessor.ocean_support_mask,restored.preprocessor.ocean_support_mask)
     forecast_path = tmp_path/"forecast"

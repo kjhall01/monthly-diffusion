@@ -310,11 +310,15 @@ class MeshHierarchyAutoencoder(nn.Module):
         channels,
         geometry,
         grid_shape,
-        config=AutoencoderConfig(),
+        config=None,
         *,
         mask_aware=False,
+        **parameters,
     ):
         super().__init__()
+        if config is not None and parameters:
+            raise ValueError("Supply individual AE parameters or config, not both")
+        config = config or AutoencoderConfig(**parameters)
         context = HierarchyContext(geometry, config.width, config.co2_film_levels)
         self.encoder = MeshHierarchyEncoder(channels, geometry, config, context=context)
         self.decoder = MeshHierarchyDecoder(

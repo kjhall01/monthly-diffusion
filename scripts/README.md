@@ -1,102 +1,155 @@
-# The main path
+# One run, seven ordinary Python scripts
 
-Run these from the repository root after `python -m pip install -e '.[plots]'`.
-Each is an ordinary top-to-bottom Python script. Edit the visible parameters and
-steps directly; shared calculations live in `monthly_diffusion/`.
+Edit the values near the top of each script, then run it from the repository
+root. There are no command-line options, `main()` wrappers, or package trainers
+in this path. The optimizer, batches, loss, validation, early stopping and
+checkpoint writes are visible in each training script.
 
-| Step | Script | Result |
-|---|---|---|
-| 1 | [train_atmosphere_autoencoder.py](train_atmosphere_autoencoder.py) | Select the atmosphere AE |
-| 2 | [train_ocean_autoencoder.py](train_ocean_autoencoder.py) | Select the ocean AE, freeze both, cache normalized latents |
-| 3 | [train_latent_diffusion.py](train_latent_diffusion.py) | Train the coupled transition on the fixed latent cache |
-| 4 | [generate_ae_reconstruction.py](generate_ae_reconstruction.py) | Encode/decode the reference months; save fields and latents |
-| 5 | [generate_ar_rollout.py](generate_ar_rollout.py) | Generate and archive autoregressive trajectories |
-| 6 | [analyze_ae_reconstruction.py](analyze_ae_reconstruction.py) | Reconstruction errors, climatology and response maps |
-| 7 | [analyze_ar_rollout.py](analyze_ar_rollout.py) | Climate trajectories, variability and response maps |
+Set the same `RUN_DIR` in all seven files, for example `Path("runs/my-experiment")`.
+In the first script, also set `DATA`, `CO2`, `TRAIN_PERIOD` and `VALIDATION_PERIOD`.
+It creates the directory and records those source paths and periods once.
+The other scripts read that record; they do not need duplicate data settings.
 
 ```bash
-python scripts/train_atmosphere_autoencoder.py --run runs/e3sm --data examples/e3sm.yaml
-python scripts/train_ocean_autoencoder.py --run runs/e3sm
-python scripts/train_latent_diffusion.py --run runs/e3sm
-python scripts/generate_ae_reconstruction.py --run runs/e3sm
-python scripts/generate_ar_rollout.py --run runs/e3sm
-python scripts/analyze_ae_reconstruction.py --run runs/e3sm
-python scripts/analyze_ar_rollout.py --run runs/e3sm
+python scripts/train_atmosphere_autoencoder.py
+python scripts/train_ocean_autoencoder.py
+python scripts/train_latent_diffusion.py
+python scripts/generate_ae_reconstruction.py
+python scripts/generate_ar_rollout.py
+python scripts/analyze_ae_reconstruction.py
+python scripts/analyze_ar_rollout.py
 ```
 
-Edit the source paths in `examples/e3sm.yaml` first. `--run` is the only path
-needed after step 1: the scripts share `model.pt`, `data_sources.yaml`, and
-`splits.yaml`. The default training period is 1966–2006, validation 1958–1965.
-Change both periods in step 1; subsequent stages inherit them. Physical statistics
-and latent scaling are fitted only on the training split. To reuse a model
-recipe, pass `--config examples/model.yaml` to step 1; it is optional.
+Install first with `python -m pip install -e '.[test,plots]'`. The default source
+paths are Kyle's canonical 1-degree E3SM Zarr and prescribed CO2 file; edit them
+for another machine. `SPECIFICATIONS` selects the component's physical variables,
+transforms and loss weights from the production definitions in
+`monthly_diffusion/data/configs.py`. You can supply your own `Variable` records.
 
-Training and generation accept `--device`, `--threads`, and `--resume`. Training
-also accepts `--epochs`. Resume restores optimizer/EMA/RNG state for unfinished
-training and skips selected stages. Choose a new run directory to retrain.
-The two AEs select their best validation epochs independently. This intentionally
-changes selection from the historical paired-AE trainer, so it does not promise
-identical newly trained weights. The architecture, objectives, preprocessing,
-optimizer, diffusion sampler, and checkpoint format are retained.
+## What each stage does
 
-Step 2 finishes the latent cache, so step 4 can also run before step 3. AE
-reconstruction writes one atomic `year-YYYY.zarr` at a time, including both physical
-components and their fixed transition-normalized latents. Resume checks the
-checkpoint file, source description, dates and forcing before keeping completed
-years. If the checkpoint file changes, use a new reconstruction output directory.
-The default period is January 1850–December 2100; use `--start` and `--end` for a
-shorter reference. Missing requested months raise an error.
+1. **Atmosphere:** constructs only a `MeshHierarchyAutoencoder`, fits its own
+   training-only preprocessing, trains it, selects the best validation EMA, and
+   encodes its training/validation splits once.
+2. **Ocean:** reads the shared source/split record, constructs only its own AE,
+   and follows the same explicit training and caching steps. The atmosphere
+   network is neither constructed nor updated.
+3. **Diffusion:** reads the two fixed latent caches and constructs only
+   `CoupledLatentDiffusion`. Its optimizer and multi-step rollout loss are in the
+   script. The AEs are neither constructed nor updated.
+4. **AE reconstruction:** loads both selected AEs and their preprocessing/scaling,
+   then encodes and decodes the original chronology, one year at a time. This can
+   also run immediately after step 2, before diffusion training.
+5. **AR rollout:** loads the AEs and diffusion, initializes the two history months,
+   advances any discarded spin-up, then predicts, decodes and archives each month.
+6. **AE analysis:** measures reconstruction bias/RMSE, global means, baseline
+   climatological bias, and late-minus-early responses.
+7. **AR analysis:** compares global trajectories, climatology, baseline anomaly
+   variability and response patterns. It does not score a free-running member
+   against the phase of the reference's individual weather realizations.
 
-The default AR run generates five members for January 1850–December 2100 (3012
-months). It uses the saved local-moment stochastic initializer, no discarded
-spin-up, and the prescribed source CO2. If necessary, the first prescribed CO2
-value supplies the two history months, November–December 1849; available earlier
-forcing is retained. Use `--stochastic-start`, `--gaussian-start`,
-`--encoded-noise-start`, or physical `--initialization` for another experiment.
-An explicit start requires its own CO2 coverage or `--hold-first-co2-back-to`.
-`--spinup-months`, CO2 controls, and `--resume --extend` remain available; see
-`--help`. A resumed AR run must retain the same checkpoint, initialization,
-members, seed and existing forcing. Existing combined production checkpoints can
-skip the completed training stages and use `--checkpoint` / `--data` for generation.
-Older checkpoints need saved local moments to use the default stochastic start;
-[research/prepare_stochastic_initialization.py](research/prepare_stochastic_initialization.py)
-creates a new export without changing neural weights.
+Training defaults retain the production architecture, optimizer, loss definitions,
+EMA and validation noise policy. Training uses 1966–2006 and validation 1958–1965.
+Each AE initializes and selects its weights independently. Independent construction
+can change the random initial weights relative to the previous combined model;
+new training is not promised to reproduce those learned weights bit for bit.
+AE widths/channels can differ; coupled diffusion requires the same latent mesh
+coordinates. The saved constructor parameters are checked when loading.
 
-## Analysis products
+## Directory layout
 
-Each variable produces two PNG figures and two NetCDF files under
-`run/analysis/ae/` or `run/analysis/ar/`. Both analyses save raw global means and
-plot anomalies after subtracting each dataset/member's own 1966–2006 monthly
-climatology. Trends are retained. Global means use cosine-latitude area weights
-on common finite support; maps use Robinson projection with Cartopy coastlines.
-Cartopy may download Natural Earth coastlines the first time it draws a map.
+```text
+runs/my-experiment/
+    run.json                       # source paths and shared time periods
+    atmosphere/
+        setup.pt                   # preprocessing, statics, constructor values, local moments
+        best.pt                    # lowest validation loss, using EMA weights
+        latest.pt                  # online weights, optimizer, EMA, RNG, epoch and settings
+        model.pt                   # selected AE, with its setup identity
+        history.csv
+        latents.pt                 # training/validation latents and fixed training-only scaling
+    ocean/                         # same files for the ocean AE
+    diffusion/
+        setup.pt                   # constructor values and exact AE/cache identities
+        best.pt
+        latest.pt
+        model.pt
+        history.csv
+    ae_reconstruction/
+        reconstruction.json
+        year-1850.zarr              # reconstructed physical fields and both latent arrays
+        ...
+    ar_rollout/                    # monthly fields, restart states and provenance
+    analysis/
+        ae/                        # two PNGs and two NetCDF files per variable
+        ar/
+```
 
-AE products include monthly global bias, spatial RMSE, a full-period RMSE map,
-and the 1966–2006 climatological bias. AR products include per-member global
-trajectories, climatological bias and temporal anomaly SD maps on the baseline
-period. The SD is calculated per member before averaging variances. It includes
-residual forced variability; it is not an ensemble internal-variability estimate.
-Free-running AR members are not scored against the phase of the reference months.
+Set `RESUME = True` to continue an interrupted stage. Completed selections and
+valid caches are kept; unfinished training restores the optimizer, EMA and RNG.
+Changing architecture, data, preprocessing or optimizer settings requires a new
+run. An interrupted cache write can be completed without retraining the AE.
+`EPOCHS` and `PATIENCE` can be adjusted for unfinished training. A completed stage
+is deliberately not extended by changing `EPOCHS`: use a new run for a new fit.
 
-Both save reference/generated response maps and their difference: **2070–2100
-minus 1850–1880**, using equal-month annual means and inclusive endpoints. These
-are period-difference estimates; with a single reference member, internal
-variability remains. Generated ensemble means reduce, but do not remove, it.
+## Loading from Python
 
-Use `--variables t2m sst` for a smaller report, `--baseline FIRST LAST`, `--early`
-and `--late` for other periods, or `--skip-forced-response` for a historical-only
-source. Requested periods must have all complete years. `--no-plots` saves only
-numerical products; `--input`, `--data`, and `--output` support existing archives.
+```python
+from monthly_diffusion import load_autoencoder, load_diffusion, load_models
 
-## Other workflows
+atmosphere, saved = load_autoencoder("runs/my-experiment", "atmosphere", device="cpu")
+ocean, saved = load_autoencoder("runs/my-experiment", "ocean", device="cpu")
+diffusion, saved = load_diffusion("runs/my-experiment", device="cpu")
 
-- [research/](research/): specialized diagnostics, ablations and initialization
-  experiments formerly at the top of `scripts/`; filenames and CLI options stay
-  the same, with `research/` added to the path.
-- [recipes/](recipes/): the existing shell launchers, now pointing to the relocated
-  scripts. They retain their original experiment settings and paired AE training.
-- [legacy/](legacy/): the former `examples/train_model.py`, `forecast.py`, and
-  `diagnose.py`, preserving the original paired-training workflow and interfaces.
+# Physical xarray encode/decode and forecast interface; no training occurs here.
+models = load_models("runs/my-experiment", device="cpu")
+aes = load_models("runs/my-experiment", device="cpu", diffusion=False)
+```
 
-The [package code map](../docs/code-map.md) describes where to change the model,
-training loop, inference steps and scientific calculations.
+Each individual loader returns the actual Torch module plus saved metadata
+(including preprocessing/statics for an AE). The combined loader checks that the
+models, preprocessing and caches belong together. It can also open older run
+directories containing `model.pt` and `data_sources.yaml`. Existing combined
+checkpoint files remain loadable with `MonthlyDiffusionV1.load(path)`.
+
+The old `model.train()` and package trainer functions have been removed.
+Training lives in the scripts. The historical paired CLI in `legacy/train_model.py`
+now contains its own loops for existing recipe/resume workflows; it is not part
+of the new directory layout. Start a new directory to use the new training path.
+
+## Generation and analysis choices
+
+Reconstruction defaults to January 1850–December 2100; edit `START` and `END`
+for a shorter source. It uses the saved fixed latent scaling. Atmosphere and
+ocean channels have distinct dimensions in the annual archive, allowing their
+channel counts to differ. Reconstruction resume is bound to the AE weights and
+preprocessing; subsequently training diffusion does not invalidate it.
+
+AR defaults to five stochastic members for 3012 saved months, starting January
+1850, without discarded spin-up. `INITIALIZATION` can be `stochastic`, `gaussian`,
+`encoded_noise`, or `observed`. For observed initialization, the source must cover
+the two months before `START`. The default prescribed CO2 prefix supplies the
+history months back to November 1849 only when the source does not already cover
+them. `CONSTANT_CO2`, `CONSTANT_INITIAL_CO2`, `SPINUP_MONTHS`, and
+`SAVE_SPINUP_LATENTS` control other experiments. Spin-up counts from `START` and
+is additional to the `MONTHS` saved months. Set `RESUME = EXTEND = True` to extend
+a consistent existing AR archive; prior files and the forcing prefix are checked.
+
+Both analyses save raw global means and plot anomalies after subtracting each
+dataset/member's own 1966–2006 monthly climatology. Trends are retained. Spatial
+means use cosine-latitude weights and common finite support. Maps use Robinson
+projection and Cartopy coastlines; Natural Earth data may download on first use.
+
+AE outputs include monthly global bias and spatial RMSE, full-period RMSE maps,
+and 1966–2006 climatological bias. AR variability maps use baseline-period temporal
+anomaly SD, calculated per member before averaging variances. This includes
+residual forced variability and is not an ensemble internal-variability estimate.
+
+Responses use **2070–2100 minus 1850–1880**, with equal-month annual means and
+inclusive endpoints. A single reference trajectory retains internal variability.
+Edit `BASELINE`, `EARLY`, `LATE`, `VARIABLES`, `SKIP_FORCED_RESPONSE` and `MAKE_PLOTS`
+in the analysis scripts. Requested periods must have complete years.
+
+`research/` retains specialized experiments; `recipes/` retains historical shell
+launchers; `legacy/` retains the old CLI workflows. The
+[code map](../docs/code-map.md) describes the reusable package modules.

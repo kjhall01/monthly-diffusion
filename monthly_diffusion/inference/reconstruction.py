@@ -1,17 +1,10 @@
 """Atomic annual reconstructions, with latents and physical fields kept together."""
 
 from pathlib import Path
-import hashlib
 import json
 import numpy as np
 import xarray as xr
 from numcodecs import Blosc
-
-
-def checkpoint_digest(path):
-    """Bind generated products to the complete saved scientific state."""
-    with Path(path).open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def prepare_reconstruction_archive(path, metadata, *, resume=False):
@@ -58,8 +51,10 @@ def write_reconstruction_year(fields, latents, path, *, co2):
     products = xr.merge(
         [
             *fields,
-            latents[0].rename("atmosphere_latent"),
-            latents[1].rename("ocean_latent"),
+            latents[0]
+            .rename({"channel": "atmosphere_channel"})
+            .rename("atmosphere_latent"),
+            latents[1].rename({"channel": "ocean_channel"}).rename("ocean_latent"),
         ],
         compat="no_conflicts",
     ).assign_coords(co2=co2)

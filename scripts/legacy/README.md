@@ -1,10 +1,9 @@
-# Original paired workflow
+# Historical CLI workflows
 
-The former `examples/train_model.py`, `examples/forecast.py`, and
-`examples/diagnose.py` live here with their original CLI interfaces. The trainer
-selects the two AEs together using combined validation loss, then trains diffusion.
-Use it to resume an unfinished paired run.
+These are the original `train_model.py`, `forecast.py` and `diagnose.py` CLI
+workflows. The paired trainer now contains its own training loops; there is no
+package training API. It retains combined AE validation, the original checkpoint
+layout and the existing recipe flags, including resume.
 
-New separate-stage runs follow the [main workflow](../README.md). Both paths use
-the same model/checkpoint format. Finish partial separate-AE runs using the new
-component scripts before switching to a convenience training API.
+New experiments use the [editable component scripts](../README.md) and their
+shared run directory. Existing combined checkpoints remain loadable for inference.

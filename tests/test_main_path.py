@@ -1,270 +1,331 @@
-"""Exercise the main scripts with real training, serialization and inference."""
+"""The editable scripts own training; a run directory carries all later stages."""
 
+import ast
 from pathlib import Path
-import runpy
-import sys
 import numpy as np
 import pytest
 import torch
 import xarray as xr
-import yaml
-from monthly_diffusion import MonthlyDiffusionV1, open_rollout
+from monthly_diffusion import (
+    load_autoencoder,
+    load_diffusion,
+    load_models,
+    MonthlyDiffusionV1,
+    open_rollout,
+)
 from monthly_diffusion.data import sources
+from monthly_diffusion.run_files import file_digest, load_latents
 from monthly_diffusion.inference.reconstruction import open_reconstruction
-from monthly_diffusion.training import latents
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def run_script(monkeypatch, name, run, *arguments):
-    script = ROOT / "scripts" / (name + ".py")
-    monkeypatch.setattr(
-        sys, "argv", [str(script), "--run", str(run), *map(str, arguments)]
-    )
-    runpy.run_path(str(script), run_name="__main__")
+from monthly_diffusion.modules.autoencoder import MeshHierarchyAutoencoder
+from monthly_diffusion.components.coupled_latent_diffusion import CoupledLatentDiffusion
 
 
-def assert_weights_equal(actual, expected):
-    for name, value in actual.state_dict().items():
-        torch.testing.assert_close(
-            value, expected.state_dict()[name], rtol=0, atol=0, equal_nan=True
-        )
-
-
-def test_seven_stage_path(tiny_data, tmp_path, monkeypatch):
+@pytest.fixture
+def experiment(tiny_data, tmp_path, monkeypatch):
     a, o, statics, _, config = tiny_data
-    val_times = xr.date_range("1958-01-01", periods=24, freq="MS")
-    all_a = xr.concat([a.assign_coords(time=val_times), a], "time")
-    all_o = xr.concat([o.assign_coords(time=val_times), o], "time")
-    times = xr.date_range("1958-01-01", "1970-12-01", freq="MS")
+    val_time = xr.date_range("1958-01-01", periods=24, freq="MS")
+    all_a = xr.concat([a.assign_coords(time=val_time), a], "time")
+    all_o = xr.concat([o.assign_coords(time=val_time), o], "time")
+    time = xr.date_range("1958-01-01", "1970-12-01", freq="MS")
     co2 = xr.DataArray(
-        np.linspace(310, 350, len(times)), dims="time", coords={"time": times}
+        np.linspace(310, 350, len(time)), dims="time", coords={"time": time}
     )
     monkeypatch.setattr(
         sources, "open_canonical_state", lambda *args, **kwargs: (all_a, all_o, statics)
     )
     monkeypatch.setattr(sources, "open_co2", lambda *args, **kwargs: co2)
-    source = tmp_path / "source.yaml"
-    source.write_text(
-        yaml.safe_dump({"state_zarr": "fixture", "co2_netcdf": "fixture"})
+    params = dict(
+        RUN_DIR=tmp_path / "run",
+        DEVICE="cpu",
+        THREADS=1,
+        WIDTH=8,
+        MESH_LEVELS=(1, 0),
+        REFINERS=(1, 1),
+        EPOCHS=1,
     )
-    config_file = tmp_path / "config.yaml"
-    config.save(config_file)
-    run = tmp_path / "run"
-    initial = MonthlyDiffusionV1(statics=statics, config=config, device="cpu")
-    initial.prepare(a, o, co2=co2)
-    common = ("--device", "cpu", "--threads", "1")
-    run_script(
-        monkeypatch,
-        "train_atmosphere_autoencoder",
-        run,
-        "--data",
-        source,
-        "--config",
-        config_file,
-        *common,
-    )
-    atmos = MonthlyDiffusionV1.load(run / "model.pt", device="cpu")
-    assert (
-        "atmosphere_autoencoder" in atmos.stages and "autoencoder" not in atmos.stages
-    )
-    assert_weights_equal(atmos.autoencoder.ocean, initial.autoencoder.ocean)
-    assert_weights_equal(atmos.transition, initial.transition)
-    assert atmos.weight_digest(autoencoder_only=True) != initial.weight_digest(
-        autoencoder_only=True
-    )
-    with pytest.raises(ValueError, match="separate AE stages"):
-        atmos.train(
-            a,
-            o,
-            validation=(all_a.sel(time="1958"), all_o.sel(time="1958")),
-            co2=co2,
-            directory=run,
-            resume=True,
+    return a, o, co2, config, params
+
+
+def unexpected_network(*args, **kwargs):
+    raise AssertionError("This script must not construct this network")
+
+
+def test_seven_scripts_and_component_loading(experiment, run_script, monkeypatch):
+    a, o, co2, config, params = experiment
+    run = params["RUN_DIR"]
+    with monkeypatch.context() as isolated:
+        isolated.setattr(CoupledLatentDiffusion, "__init__", unexpected_network)
+        run_script(
+            "train_atmosphere_autoencoder",
+            **params,
+            SPECIFICATIONS=[config.variables[0]],
         )
-
-    # Simulate interruption after ocean selection, before latent caching finishes.
-    cache_latents = latents.cache_latents
-
-    def interrupt_cache(*args, **kwargs):
-        raise RuntimeError("simulated cache interruption")
-
-    monkeypatch.setattr(latents, "cache_latents", interrupt_cache)
-    with pytest.raises(RuntimeError, match="simulated cache interruption"):
-        run_script(monkeypatch, "train_ocean_autoencoder", run, *common)
-    ocean_selected = MonthlyDiffusionV1.load(run / "model.pt", device="cpu")
-    assert (
-        "ocean_autoencoder" in ocean_selected.stages
-        and "autoencoder" not in ocean_selected.stages
-    )
-    monkeypatch.setattr(latents, "cache_latents", cache_latents)
-    run_script(monkeypatch, "train_ocean_autoencoder", run, "--resume", *common)
-    both = MonthlyDiffusionV1.load(run / "model.pt", device="cpu")
-    assert_weights_equal(both.autoencoder.atmosphere, atmos.autoencoder.atmosphere)
-    assert_weights_equal(both.autoencoder.ocean, ocean_selected.autoencoder.ocean)
-    assert_weights_equal(both.transition, initial.transition)
-    assert "autoencoder" in both.stages and both.latent_normalizers
-    cache_time = (run / "latents.pt").stat().st_mtime_ns
-    run_script(monkeypatch, "train_latent_diffusion", run, *common)
-    trained = MonthlyDiffusionV1.load(run / "model.pt", device="cpu")
-    assert trained.weight_digest(autoencoder_only=True) == both.weight_digest(
-        autoencoder_only=True
-    )
-    assert trained.weight_digest() != both.weight_digest()
-    assert (run / "latents.pt").stat().st_mtime_ns == cache_time
-    for name in (
-        "train_atmosphere_autoencoder",
+    assert not (run / "ocean").exists() and not (run / "diffusion").exists()
+    network, info = load_autoencoder(run, "atmosphere", device="cpu")
+    assert isinstance(network, MeshHierarchyAutoencoder)
+    assert [v.name for v in info["preprocessor"].variables] == ["t2m"]
+    assert not hasattr(MonthlyDiffusionV1, "train")
+    before = file_digest(run / "atmosphere/model.pt")
+    # Different component widths/channels are independent saved constructor values.
+    run_script(
         "train_ocean_autoencoder",
-        "train_latent_diffusion",
-    ):
-        with pytest.raises(SystemExit) as stopped:
-            run_script(monkeypatch, name, run, "--resume", *common)
-        assert stopped.value.code == 0
-    assert (
-        MonthlyDiffusionV1.load(run / "model.pt", device="cpu").weight_digest()
-        == trained.weight_digest()
+        **{**params, "WIDTH": 12, "LATENT_CHANNELS": 6},
+        SPECIFICATIONS=[config.variables[1]],
     )
-
+    assert file_digest(run / "atmosphere/model.pt") == before
+    both = load_models(run, device="cpu", diffusion=False)
+    assert both.transition is None
     run_script(
-        monkeypatch,
         "generate_ae_reconstruction",
-        run,
-        "--start",
-        "1966-01",
-        "--end",
-        "1967-12",
-        *common,
+        RUN_DIR=run,
+        DEVICE="cpu",
+        THREADS=1,
+        START="1966-01",
+        END="1967-12",
     )
-    za, zo = trained.encode(a, o, co2=co2)
-    expected = xr.merge(trained.decode(za, zo, co2=co2))
-    with open_reconstruction(run / "ae_reconstruction") as reconstructed:
+    latents = both.encode(a, o, co2=co2)
+    expected = xr.merge(both.decode(*latents, co2=co2))
+    with open_reconstruction(run / "ae_reconstruction") as saved:
         xr.testing.assert_allclose(
-            reconstructed[["t2m", "sst"]].drop_vars("co2").compute(), expected
+            saved[["t2m", "sst"]].drop_vars("co2").compute(), expected
         )
+        assert saved.atmosphere_latent.sizes["atmosphere_channel"] == 4
+        assert saved.ocean_latent.sizes["ocean_channel"] == 6
         xr.testing.assert_allclose(
-            reconstructed.atmosphere_latent.drop_vars("co2").compute(),
-            za.rename("atmosphere_latent"),
+            saved.ocean_latent.drop_vars("co2")
+            .rename({"ocean_channel": "channel"})
+            .compute(),
+            latents[1].rename("ocean_latent"),
         )
     first = run / "ae_reconstruction/year-1966.zarr/.zmetadata"
-    written = first.stat().st_mtime_ns
+    modified = first.stat().st_mtime_ns
+    fingerprints = {
+        str(p): file_digest(p)
+        for c in ("atmosphere", "ocean")
+        for p in (run / c).glob("*.pt")
+    }
+    with monkeypatch.context() as isolated:
+        isolated.setattr(MeshHierarchyAutoencoder, "__init__", unexpected_network)
+        run_script(
+            "train_latent_diffusion",
+            RUN_DIR=run,
+            DEVICE="cpu",
+            THREADS=1,
+            EPOCHS=1,
+            WIDTH=8,
+            DEPTH=1,
+            HEADS=2,
+            TIME_EMBEDDING_CHANNELS=8,
+        )
+    assert all(file_digest(p) == digest for p, digest in fingerprints.items())
+    transition, _ = load_diffusion(run, device="cpu")
+    assert transition.config.ocean_latent_channels == 6
+    trained = load_models(run, device="cpu")
+    # Adding diffusion does not invalidate an existing reconstruction archive.
     run_script(
-        monkeypatch,
         "generate_ae_reconstruction",
-        run,
-        "--start",
-        "1966-01",
-        "--end",
-        "1967-12",
-        "--resume",
-        *common,
+        RUN_DIR=run,
+        DEVICE="cpu",
+        THREADS=1,
+        START="1966-01",
+        END="1967-12",
+        RESUME=True,
     )
-    assert first.stat().st_mtime_ns == written
-    with pytest.raises(ValueError, match="differ from reconstruction archive"):
-        run_script(
-            monkeypatch,
-            "generate_ae_reconstruction",
-            run,
-            "--start",
-            "1966-01",
-            "--end",
-            "1966-12",
-            "--resume",
-            *common,
+    assert first.stat().st_mtime_ns == modified
+    trained.save(run / "export.pt")
+    restored = MonthlyDiffusionV1.load(run / "export.pt", device="cpu")
+    assert restored.weight_digest() == trained.weight_digest()
+    for actual, expected_latent in zip(restored.encode(a, o, co2=co2), latents):
+        xr.testing.assert_identical(actual, expected_latent)
+
+    for initialization in ("stochastic", "gaussian", "encoded_noise", "observed"):
+        output = run / initialization
+        start = "1966-03" if initialization == "observed" else "1966-01"
+        options = dict(
+            RUN_DIR=run,
+            OUTPUT=output,
+            DEVICE="cpu",
+            THREADS=1,
+            MONTHS=2,
+            MEMBERS=2,
+            START=start,
+            INITIALIZATION=initialization,
+            SEED=41,
         )
-
-    ar_args = (
-        "--stochastic-start",
-        "1966-01",
-        "--members",
-        "2",
-        "--seed",
-        "41",
-        *common,
-    )
-    run_script(monkeypatch, "generate_ar_rollout", run, "--months", "12", *ar_args)
-    first_ar = run / "ar_rollout/month-000001.zarr/.zmetadata"
-    ar_written = first_ar.stat().st_mtime_ns
-    run_script(
-        monkeypatch,
-        "generate_ar_rollout",
-        run,
-        "--months",
-        "24",
-        "--resume",
-        "--extend",
-        *ar_args,
-    )
-    expected = trained.rollout(
-        co2=co2, months=24, members=2, seed=41, stochastic_start="1966-01"
-    )
-    with open_rollout(run / "ar_rollout") as archived:
-        xr.testing.assert_identical(archived.compute(), expected.astype("float32"))
-    assert first_ar.stat().st_mtime_ns == ar_written
-
-    # The main-path default starts in January 1850 with a prescribed CO2 prefix.
-    default_output = run / "default_start"
-    run_script(
-        monkeypatch,
-        "generate_ar_rollout",
-        run,
-        "--output",
-        default_output,
-        "--months",
-        "1",
-        "--members",
-        "1",
-        "--seed",
-        "41",
-        *common,
-    )
-    expected_default = trained.rollout(
-        co2=float(co2[0]), months=1, members=1, seed=41, stochastic_start="1850-01"
-    )
-    with open_rollout(default_output) as archived:
-        xr.testing.assert_identical(
-            archived.compute(), expected_default.astype("float32")
-        )
-
-    # A short but complete source supports the same analysis as a 251-year run.
-    monkeypatch.setattr(
-        sources, "open_canonical_state", lambda *args, **kwargs: (a, o, statics)
-    )
-    analysis_args = (
-        "--baseline",
-        "1966",
-        "1967",
-        "--early",
-        "1966",
-        "1966",
-        "--late",
-        "1967",
-        "1967",
-        "--no-plots",
-    )
-    for kind, name in (
-        ("ae", "analyze_ae_reconstruction"),
-        ("ar", "analyze_ar_rollout"),
-    ):
-        run_script(monkeypatch, name, run, *analysis_args)
-        with xr.open_dataset(run / f"analysis/{kind}/sst_maps.nc") as maps:
-            assert "response_difference" in maps
-            assert maps.climatological_bias.isel(lon=0).isnull().all()
-        with xr.open_dataset(run / f"analysis/{kind}/t2m_series.nc") as series:
-            assert abs(float(series.reference_global_anomaly.mean("time"))) < 1e-4
-            assert ("global_rmse" in series) == (kind == "ae")
-
-
-def test_scalar_forcing_rejects_a_prefix_before_opening_files(tmp_path, monkeypatch):
-    with pytest.raises(SystemExit) as stopped:
+        run_script("generate_ar_rollout", **options)
+        first_ar = output / "month-000001.zarr/.zmetadata"
+        wrote = first_ar.stat().st_mtime_ns
         run_script(
-            monkeypatch,
             "generate_ar_rollout",
-            tmp_path / "absent",
-            "--constant-co2",
-            "300",
-            "--hold-first-co2-back-to",
-            "1849-11",
-            "--threads",
-            "1",
+            **{**options, "MONTHS": 3, "RESUME": True, "EXTEND": True},
         )
-    assert stopped.value.code == 2
+        states = (
+            (a.isel(time=slice(2)), o.isel(time=slice(2)))
+            if initialization == "observed"
+            else ()
+        )
+        kwargs = (
+            {}
+            if initialization == "observed"
+            else {initialization + "_start": "1966-01"}
+        )
+        expected_ar = trained.rollout(
+            *states, co2=co2, months=3, members=2, seed=41, **kwargs
+        )
+        with open_rollout(output) as saved:
+            xr.testing.assert_identical(saved.compute(), expected_ar.astype("float32"))
+        assert first_ar.stat().st_mtime_ns == wrote
+    # Two full years for the main AR climate analysis.
+    run_script(
+        "generate_ar_rollout",
+        RUN_DIR=run,
+        DEVICE="cpu",
+        THREADS=1,
+        MONTHS=24,
+        MEMBERS=2,
+        START="1966-01",
+    )
+    monkeypatch.setattr(
+        sources, "open_canonical_state", lambda *args, **kwargs: (a, o, info["statics"])
+    )
+    for name, kind in (
+        ("analyze_ae_reconstruction", "ae"),
+        ("analyze_ar_rollout", "ar"),
+    ):
+        run_script(
+            name,
+            RUN_DIR=run,
+            BASELINE=(1966, 1967),
+            EARLY=(1966, 1966),
+            LATE=(1967, 1967),
+            MAKE_PLOTS=False,
+        )
+        with xr.open_dataset(run / f"analysis/{kind}/sst_maps.nc") as maps:
+            assert maps.climatological_bias.isel(lon=0).isnull().all()
+            assert "response_difference" in maps
+
+
+def test_component_resume_preserves_optimizer_ema_rng_and_cache(
+    experiment, run_script, monkeypatch
+):
+    from monthly_diffusion import checkpoints
+
+    a, o, co2, config, params = experiment
+    complete, resumed = (
+        params["RUN_DIR"].parent / "complete",
+        params["RUN_DIR"].parent / "resumed",
+    )
+    overrides = {**params, "EPOCHS": 2, "SPECIFICATIONS": [config.variables[0]]}
+    run_script("train_atmosphere_autoencoder", **{**overrides, "RUN_DIR": complete})
+    original = checkpoints.atomic_save
+
+    def interrupt_after_epoch(value, path):
+        original(value, path)
+        if Path(path).name == "latest.pt" and value.get("epoch") == 1:
+            raise RuntimeError("simulated interruption")
+
+    with monkeypatch.context() as interrupted:
+        interrupted.setattr(checkpoints, "atomic_save", interrupt_after_epoch)
+        with pytest.raises(RuntimeError, match="simulated interruption"):
+            run_script(
+                "train_atmosphere_autoencoder", **{**overrides, "RUN_DIR": resumed}
+            )
+    run_script(
+        "train_atmosphere_autoencoder",
+        **{**overrides, "RUN_DIR": resumed, "RESUME": True},
+    )
+    whole, _ = load_autoencoder(complete, "atmosphere", device="cpu")
+    resumed_ae, _ = load_autoencoder(resumed, "atmosphere", device="cpu")
+    for name, value in whole.state_dict().items():
+        torch.testing.assert_close(value, resumed_ae.state_dict()[name], rtol=0, atol=0)
+    for split in ("training", "validation"):
+        torch.testing.assert_close(
+            load_latents(complete, "atmosphere")[split],
+            load_latents(resumed, "atmosphere")[split],
+            rtol=0,
+            atol=0,
+        )
+    fingerprint = file_digest(resumed / "atmosphere/model.pt")
+    run_script(
+        "train_atmosphere_autoencoder",
+        **{**overrides, "RUN_DIR": resumed, "RESUME": True},
+    )
+    assert fingerprint == file_digest(resumed / "atmosphere/model.pt")
+    with pytest.raises(ValueError, match="settings changed"):
+        run_script(
+            "train_atmosphere_autoencoder",
+            **{**overrides, "RUN_DIR": resumed, "WIDTH": 12, "RESUME": True},
+        )
+
+
+def test_main_scripts_show_training_and_have_no_cli_or_config_dispatch():
+    root = Path(__file__).resolve().parents[1] / "scripts"
+    for path in root.glob("*.py"):
+        source = path.read_text()
+        tree = ast.parse(source)
+        assert not any(
+            isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            for n in ast.walk(tree)
+        ), path
+        for removed in (
+            "argparse",
+            "ModelConfig",
+            "TrainingConfig",
+            "train_autoencoder(",
+            "train_coupled_diffusion(",
+        ):
+            assert removed not in source, (path, removed)
+        if path.name.startswith("train_"):
+            assert "torch.optim.AdamW(" in source
+            assert "loss.backward()" in source or 'terms["loss"].backward()' in source
+            assert "for epoch in range(" in source
+
+
+def test_diffusion_resume_and_changed_ae_detection(experiment, run_script, monkeypatch):
+    import shutil
+    from monthly_diffusion import checkpoints
+
+    a, o, co2, config, params = experiment
+    whole = params["RUN_DIR"]
+    resumed = whole.parent / "resumed_diffusion"
+    run_script(
+        "train_atmosphere_autoencoder", **params, SPECIFICATIONS=[config.variables[0]]
+    )
+    run_script(
+        "train_ocean_autoencoder", **params, SPECIFICATIONS=[config.variables[1]]
+    )
+    shutil.copytree(whole, resumed)
+    diffusion = dict(
+        DEVICE="cpu",
+        THREADS=1,
+        EPOCHS=2,
+        WIDTH=8,
+        DEPTH=1,
+        HEADS=2,
+        TIME_EMBEDDING_CHANNELS=8,
+    )
+    run_script("train_latent_diffusion", RUN_DIR=whole, **diffusion)
+    save = checkpoints.atomic_save
+
+    def interrupt(value, path):
+        save(value, path)
+        if Path(path).name == "latest.pt" and value.get("epoch") == 1:
+            raise RuntimeError("interrupted diffusion")
+
+    with monkeypatch.context() as interrupted:
+        interrupted.setattr(checkpoints, "atomic_save", interrupt)
+        with pytest.raises(RuntimeError, match="interrupted diffusion"):
+            run_script("train_latent_diffusion", RUN_DIR=resumed, **diffusion)
+    run_script("train_latent_diffusion", RUN_DIR=resumed, RESUME=True, **diffusion)
+    expected, _ = load_diffusion(whole, device="cpu")
+    actual, _ = load_diffusion(resumed, device="cpu")
+    for name, value in expected.state_dict().items():
+        torch.testing.assert_close(value, actual.state_dict()[name], rtol=0, atol=0)
+    checkpoint = resumed / "ocean/model.pt"
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    payload["model"][next(iter(payload["model"]))] += 1
+    torch.save(payload, checkpoint)
+    with pytest.raises(ValueError, match="different ocean model.pt"):
+        load_diffusion(resumed, device="cpu")
+    with pytest.raises(ValueError, match="different AE"):
+        load_latents(resumed, "ocean")

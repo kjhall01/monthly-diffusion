@@ -1,8 +1,7 @@
 """Model state and the xarray encode/decode API.
 
-This is deliberately not an nn.Module: .train() fits two stages rather than
-overriding PyTorch's train/eval-mode switch. The modules remain accessible as
-.autoencoder and .transition for scientific experiments.
+Training lives in the scripts. This physical-data interface holds loaded neural
+modules as .autoencoder and .transition for inference and scientific experiments.
 """
 
 from pathlib import Path
@@ -24,19 +23,12 @@ from .components.coupled_latent_diffusion import (
 from .data.configs import ModelConfig
 from .data.preprocessing import Preprocessor
 from .data.dataloader import (
-    PhysicalStates,
-    LatentSequences,
     co2_values,
     month_features,
     validate_fields,
     validate_units,
 )
-from .training.autoencoder import train_autoencoder
-from .training.coupled_training import train_coupled_diffusion
 from .checkpoints import atomic_save
-from .training.data import validate_training_split
-from .training.resume import restore_training_state
-from .training.latents import cache_latents
 from .inference.moments import fit_initialization_moments
 
 log = logging.getLogger(__name__)
@@ -159,93 +151,6 @@ class MonthlyDiffusionV1:
                 "Atmosphere/ocean timestamps must match exactly, including calendar"
             )
 
-    def train(
-        self, atmos, ocean, *, validation, co2, directory="runs/mdv1", resume=False
-    ):
-        """AE-only -> fixed train-latent statistics -> cached coupled diffusion.
-
-        Pass already-separated training and validation xarray datasets. No test
-        data are used here. Stage-specific latest/best checkpoints and history
-        tables are saved; completed stages are skipped on resume.
-        """
-        directory = Path(directory)
-        directory.mkdir(parents=True, exist_ok=True)
-        progress = directory / "model.pt"
-        if progress.exists():
-            if not resume:
-                raise FileExistsError(
-                    "Run already exists; use resume=True or another directory"
-                )
-            restore_training_state(self, progress)
-        if self.autoencoder is None:
-            self.prepare(atmos, ocean, co2=co2)
-            self.save(progress)
-        if "atmosphere_autoencoder" in self.stages and "autoencoder" not in self.stages:
-            raise ValueError(
-                "Finish the separate AE stages with scripts/train_ocean_autoencoder.py"
-            )
-        validate_training_split(self, atmos, ocean, validation, co2)
-        if not self.initialization_moments:
-            self.fit_stochastic_initialization(atmos, ocean)
-            self.save(progress)
-        self.config.save(directory / "config.yaml")
-        datasets = [
-            PhysicalStates(a, o, self.preprocessor, co2_values(co2, a.time))
-            for a, o in ((atmos, ocean), validation)
-        ]
-        statics = (
-            self.preprocessor.static_tensor(self.statics).to(self.device).unsqueeze(0)
-        )
-        if "autoencoder" not in self.stages:
-            log.info("Stage 1: reconstruction-only autoencoder training")
-            self.autoencoder.requires_grad_(True)
-            weights = {
-                comp: torch.tensor(
-                    [v.weight for v in self.config.variables if v.component == comp]
-                )
-                for comp in self.names
-            }
-            result = train_autoencoder(
-                self.autoencoder,
-                *datasets,
-                statics=statics,
-                latitudes=torch.tensor(self.statics.lat.values),
-                weights=weights,
-                config=self.config.autoencoder_training,
-                directory=directory / "autoencoder",
-                resume=resume,
-            )
-            self.stages["autoencoder"] = {
-                k: v for k, v in result.items() if k != "history"
-            }
-            self.save(progress)
-        self.autoencoder.eval().requires_grad_(False)
-        cache = cache_latents(self, *datasets, directory)
-        self.save(progress)
-        if "diffusion" not in self.stages:
-            log.info("Stage 3: diffusion-only training on immutable cached latents")
-            sequences = [
-                LatentSequences(
-                    cache[split]["atmosphere"],
-                    cache[split]["ocean"],
-                    cache[split + "_time"],
-                    self.config.diffusion_training.rollout_steps,
-                )
-                for split in ("training", "validation")
-            ]
-            result = train_coupled_diffusion(
-                self.transition,
-                *sequences,
-                config=self.config.diffusion_training,
-                directory=directory / "diffusion",
-                resume=resume,
-            )
-            self.stages["diffusion"] = {
-                k: v for k, v in result.items() if k != "history"
-            }
-            self.save(progress)
-        return self
-
     @torch.no_grad()
     def encode(self, atmos=None, ocean=None, *, co2):
         """Physical states -> transition-normalized latents; omitted component -> None."""
@@ -274,7 +179,11 @@ class MonthlyDiffusionV1:
             )[:, None]
             static = self.preprocessor.static_tensor(self.statics).to(self.device)[None]
             latents = []
-            batch = self.config.autoencoder_training.batch_size
+            batch = getattr(
+                self,
+                "inference_batch_size",
+                self.config.autoencoder_training.batch_size,
+            )
             for start in range(0, len(ds.time), batch):
                 physical = self.preprocessor.encode(
                     ds.isel(time=slice(start, start + batch)), component
@@ -300,7 +209,8 @@ class MonthlyDiffusionV1:
                     node_mask=node_mask,
                 )
                 latents.append(self.latent_normalizers[component].normalize(z).cpu())
-            graph = self.geometry.graphs[f"mesh_l{len(self.config.mesh_levels) - 1}"]
+            geometry = getattr(self.autoencoder, component).encoder.context.geometry
+            graph = geometry.graphs[geometry.metadata["mesh_level_names"][-1]]
             outputs.append(
                 xr.DataArray(
                     torch.cat(latents).numpy(),
@@ -308,7 +218,11 @@ class MonthlyDiffusionV1:
                     coords={
                         "time": ds.time,
                         "node": np.arange(graph.n_nodes),
-                        "channel": np.arange(self.config.latent_channels),
+                        "channel": np.arange(
+                            getattr(
+                                self.autoencoder, component
+                            ).encoder.latent_projection.out_features
+                        ),
                         "node_lat": ("node", graph.lat.numpy()),
                         "node_lon": ("node", graph.lon.numpy()),
                     },
@@ -350,7 +264,11 @@ class MonthlyDiffusionV1:
             ).repeat_interleave(members)[:, None]
             static = self.preprocessor.static_tensor(self.statics).to(self.device)[None]
             decoded = []
-            batch = self.config.autoencoder_training.batch_size
+            batch = getattr(
+                self,
+                "inference_batch_size",
+                self.config.autoencoder_training.batch_size,
+            )
             ocean_mask = None
             if component == "ocean" and self.config.ocean_mask_aware:
                 # Prefer the train-fitted SST availability mask so training and
@@ -408,7 +326,7 @@ class MonthlyDiffusionV1:
 
         This does not train/change any network or normalization. For older
         checkpoints, call once with physical xarray datasets (extra dates are
-        ignored), then save a new export. New .train() runs do this automatically.
+        ignored), then save a new export. The AE scripts save these moments during preprocessing.
         Moments live in already transformed/centered/scaled field coordinates.
         Zero SD stays zero; fewer than two finite samples means unavailable.
         Only one variable is materialized at a time, not the full training state.
@@ -536,6 +454,14 @@ class MonthlyDiffusionV1:
             transition=self.transition.state_dict(),
             torch_version=str(torch.__version__),
         )
+        if hasattr(self, "component_parameters"):
+            payload["component_parameters"] = self.component_parameters
+            payload["transition_parameters"] = self.transition_parameters
+        if hasattr(self, "run_identity"):
+            payload["run_identity"] = self.run_identity
+            payload["training_settings"] = self.training_settings
+        if hasattr(self, "inference_batch_size"):
+            payload["inference_batch_size"] = self.inference_batch_size
         atomic_save(payload, path)
 
     @classmethod
@@ -546,7 +472,32 @@ class MonthlyDiffusionV1:
                 "Not a monthly_diffusion standalone checkpoint; legacy importing is not supported"
             )
         model = cls(statics=saved["statics"], config=saved["config"], device=device)
-        model._build()
+        if "component_parameters" in saved:
+            from .model_loading import build_autoencoder
+
+            model.names = {
+                c: [v.name for v in model.config.variables if v.component == c]
+                for c in ("atmosphere", "ocean")
+            }
+            model.autoencoder = torch.nn.Module()
+            model.component_parameters = saved["component_parameters"]
+            model.transition_parameters = saved["transition_parameters"]
+            for component, parameters in model.component_parameters.items():
+                model.autoencoder.add_module(
+                    component,
+                    build_autoencoder(
+                        parameters,
+                        model.statics,
+                        len(model.names[component]),
+                        model.device,
+                    ),
+                )
+            model.geometry = model.autoencoder.atmosphere.encoder.context.geometry
+            model.transition = CoupledLatentDiffusion(**model.transition_parameters).to(
+                model.device
+            )
+        else:
+            model._build()
         model.autoencoder.load_state_dict(saved["autoencoder"])
         model.transition.load_state_dict(saved["transition"])
         model.preprocessor, model.latent_normalizers = (
@@ -554,6 +505,11 @@ class MonthlyDiffusionV1:
             saved["normalizers"],
         )
         model.stages = saved["stages"]
+        if "inference_batch_size" in saved:
+            model.inference_batch_size = saved["inference_batch_size"]
+        if "run_identity" in saved:
+            model.run_identity = saved["run_identity"]
+            model.training_settings = saved["training_settings"]
         model.initialization_moments = saved.get("initialization_moments", {})
         model.autoencoder.eval()
         model.transition.eval()

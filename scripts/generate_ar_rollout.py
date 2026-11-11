@@ -1,239 +1,142 @@
-"""Step 5: generate an autoregressive physical trajectory from the trained model."""
+"""Generate a resumable physical trajectory from the selected production models."""
 
-import argparse
-import logging
 from pathlib import Path
+from monthly_diffusion.run_files import check_script_arguments
+import numpy as np
 import torch
-import yaml
 import xarray as xr
-from monthly_diffusion.inference.metadata import forecast_metadata
-from monthly_diffusion import MonthlyDiffusionV1
+from monthly_diffusion.model_loading import load_models
+from monthly_diffusion.run_files import read_run
 from monthly_diffusion.data.dataloader import co2_values
-from monthly_diffusion.inference.forecast import Forecast
-from monthly_diffusion.inference.archive import (
-    prepare_archive,
-    write_month,
-)
-from monthly_diffusion.inference.spinup import spin_up
 from monthly_diffusion.data.sources import (
     open_canonical_state,
     open_co2,
     hold_first_co2_back_to,
 )
+from monthly_diffusion.inference.forecast import Forecast
+from monthly_diffusion.inference.metadata import forecast_metadata
+from monthly_diffusion.inference.archive import prepare_archive, write_month
+from monthly_diffusion.inference.spinup import spin_up
 
+check_script_arguments()
 
-p = argparse.ArgumentParser(description=__doc__)
-p.add_argument("--run", type=Path, default=Path("runs/production"))
-p.add_argument("--checkpoint", type=Path, help="Defaults to run/model.pt")
-p.add_argument("--data", type=Path, help="Defaults to run/data_sources.yaml")
-p.add_argument("--output", type=Path, help="Defaults to run/ar_rollout")
-p.add_argument("--months", type=int, default=3012)
-p.add_argument("--members", type=int, default=5)
-p.add_argument(
-    "--initialization",
-    default=None,
-    help="Current month YYYY-MM; prior month is also required",
+RUN_DIR = Path("runs/production")
+OUTPUT = RUN_DIR / "ar_rollout"
+START = "1850-01"  # first generated month, including any discarded spin-up
+MONTHS = 3012  # number of saved months; 1850--2100 with no spin-up
+MEMBERS = 5
+INITIALIZATION = "stochastic"  # stochastic, encoded_noise, gaussian, or observed
+SPINUP_MONTHS = 0
+SAVE_SPINUP_LATENTS = False
+CONSTANT_CO2 = None  # e.g. 284.27 for a constant-forcing experiment
+CONSTANT_INITIAL_CO2 = (
+    False  # retain observed history forcing; hold the future constant
 )
-p.add_argument(
-    "--gaussian-start",
-    default=None,
-    help="First generated month YYYY-MM; initialize both normalized latent histories with independent N(0,1)",
+HOLD_FIRST_CO2_BACK_TO = "1849-11"  # prescribed prefix if the source starts in 1850
+RESUME = False
+EXTEND = False
+SEED = 20260716
+DEVICE = (
+    "mps"
+    if torch.backends.mps.is_available()
+    else "cuda"
+    if torch.cuda.is_available()
+    else "cpu"
 )
-p.add_argument(
-    "--encoded-noise-start",
-    default=None,
-    help="First generated month YYYY-MM; encode independent N(0,1) preprocessed fields with train-fitted masks and history-month conditioning",
-)
-p.add_argument(
-    "--stochastic-start",
-    default=None,
-    help="First generated month YYYY-MM; training-local moment-matched field noise plus one predict/decode/re-encode cycle",
-)
-p.add_argument(
-    "--spinup-months",
-    type=int,
-    default=0,
-    help="Latent-only months to discard BEFORE the --months saved months",
-)
-p.add_argument(
-    "--save-spinup-latents",
-    action="store_true",
-    help="Retain every spin-up latent in resumable annual blocks; do not decode spin-up",
-)
-p.add_argument(
-    "--hold-first-co2-back-to",
-    default=None,
-    help="Explicit constant prefix using the first prescribed CO2 value",
-)
-p.add_argument("--constant-co2", type=float, default=None)
-p.add_argument(
-    "--constant-initial-co2",
-    action="store_true",
-    help="Keep actual CO2 for both history months; hold future CO2 at the current month's value",
-)
-p.add_argument("--resume", action="store_true")
-p.add_argument(
-    "--extend",
-    action="store_true",
-    help="With --resume, allow a longer horizon only if the checkpoint, initialization and entire previous forcing prefix match",
-)
-p.add_argument("--device", default=None)
-p.add_argument("--threads", type=int, default=4)
-p.add_argument("--seed", type=int, default=20260716)
-args = p.parse_args()
-args.checkpoint = args.checkpoint or args.run / "model.pt"
-args.data_yaml = args.data or args.run / "data_sources.yaml"
-args.output = args.output or args.run / "ar_rollout"
-# The main climate run covers all of 1850--2100. Other initializers remain
-# available explicitly. The two pre-1850 history months need prescribed CO2.
-default_start = all(
-    value is None
-    for value in (
-        args.initialization,
-        args.gaussian_start,
-        args.encoded_noise_start,
-        args.stochastic_start,
-    )
-)
-if default_start:
-    args.stochastic_start = "1850-01"
-    if args.hold_first_co2_back_to is None and args.constant_co2 is None:
-        args.hold_first_co2_back_to = "1849-11"
+THREADS = 4
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s")
-torch.set_num_threads(args.threads)
-if args.device == "mps" and not torch.backends.mps.is_available():
-    raise RuntimeError("MPS requested but unavailable; not falling back to CPU")
-if args.constant_initial_co2 and args.constant_co2 is not None:
-    p.error("Choose --constant-initial-co2 or --constant-co2, not both")
-if args.constant_co2 is not None and args.hold_first_co2_back_to:
-    p.error("A scalar constant CO2 does not require a prefix")
-if (
-    sum(
-        v is not None
-        for v in (
-            args.gaussian_start,
-            args.encoded_noise_start,
-            args.stochastic_start,
-            args.initialization,
-        )
+if INITIALIZATION not in ("stochastic", "encoded_noise", "gaussian", "observed"):
+    raise ValueError("Unknown INITIALIZATION")
+if MONTHS < 1 or SPINUP_MONTHS < 0 or (EXTEND and not RESUME):
+    raise ValueError(
+        "Require positive MONTHS, nonnegative spin-up, and RESUME for EXTEND"
     )
-    > 1
-):
-    p.error(
-        "Choose one of --gaussian-start, --encoded-noise-start, --stochastic-start or physical --initialization"
-    )
-if args.save_spinup_latents and args.spinup_months < 1:
-    p.error("--save-spinup-latents requires positive --spinup-months")
-if args.months < 1 or args.spinup_months < 0:
-    p.error("months must be positive and spinup_months nonnegative")
-if args.extend and not args.resume:
-    p.error("--extend requires --resume")
-noise_start = args.stochastic_start or args.encoded_noise_start or args.gaussian_start
-source = yaml.safe_load(args.data_yaml.read_text())
+if SAVE_SPINUP_LATENTS and not SPINUP_MONTHS:
+    raise ValueError("SAVE_SPINUP_LATENTS requires positive SPINUP_MONTHS")
+if CONSTANT_INITIAL_CO2 and CONSTANT_CO2 is not None:
+    raise ValueError("Choose only one constant-forcing option")
+torch.set_num_threads(THREADS)
+source = read_run(RUN_DIR)["source"]
 co2 = (
-    args.constant_co2
-    if args.constant_co2 is not None
+    CONSTANT_CO2
+    if CONSTANT_CO2 is not None
     else open_co2(source["co2_netcdf"], expected_sha256=source.get("co2_sha256"))
 )
-# Existing earlier forcing takes precedence over the default constant prefix.
 if (
-    default_start
-    and args.hold_first_co2_back_to
-    and str(co2.time.values[0])[:7] <= args.hold_first_co2_back_to
+    CONSTANT_CO2 is None
+    and HOLD_FIRST_CO2_BACK_TO
+    and str(co2.time.values[0])[:7] > HOLD_FIRST_CO2_BACK_TO
 ):
-    args.hold_first_co2_back_to = None
-if args.hold_first_co2_back_to:
-    if args.constant_co2 is not None:
-        p.error("A scalar constant CO2 does not require a prefix")
-    co2 = hold_first_co2_back_to(co2, args.hold_first_co2_back_to)
-    logging.info(
-        "Explicit spin-up prefix: %s through %s at %.4f ppm",
-        args.hold_first_co2_back_to,
-        co2.attrs["spinup_prefix_end"],
-        co2.attrs["spinup_prefix_ppm"],
+    co2 = hold_first_co2_back_to(co2, HOLD_FIRST_CO2_BACK_TO)
+    print(
+        f"CO2 prefix: {HOLD_FIRST_CO2_BACK_TO} through {co2.attrs['spinup_prefix_end']} at {co2.attrs['spinup_prefix_ppm']} ppm"
     )
-if noise_start:
-    a, o = None, None
-else:
-    a, o, _ = open_canonical_state(
+
+atmosphere, ocean = None, None
+if INITIALIZATION == "observed":
+    atmosphere, ocean, _ = open_canonical_state(
         source["state_zarr"], expected_attrs=source.get("expected_attrs")
     )
-    if args.initialization:
-        a, o = (
-            a.sel(time=slice(None, args.initialization)).isel(time=slice(-2, None)),
-            o.sel(time=slice(None, args.initialization)).isel(time=slice(-2, None)),
-        )
-    else:
-        a, o = a.isel(time=slice(0, 2)), o.isel(time=slice(0, 2))
-    if args.initialization and (
-        not a.sizes["time"] or str(a.time.values[-1])[:7] != args.initialization
+    history_months = [
+        str(np.datetime64(START, "M") - np.timedelta64(k, "M")) for k in (2, 1)
+    ]
+    atmosphere = atmosphere.sel(time=slice(*history_months))
+    ocean = ocean.sel(time=slice(*history_months))
+    if (
+        atmosphere.sizes["time"] != 2
+        or str(atmosphere.time.values[-1])[:7] != history_months[-1]
     ):
-        raise ValueError("Requested initialization month is unavailable")
-if args.constant_initial_co2:
-    if noise_start:
-        ppm = float(co2.sel(time=noise_start).values[0])
-        co2 = co2.copy(data=co2.values * 0 + ppm)
-    else:
-        ppm = float(co2_values(co2, a.time).isel(time=-1))
-        current = int(a.time.dt.year[-1]) * 12 + int(a.time.dt.month[-1])
+        raise ValueError(
+            "Observed initialization requires the two months preceding START"
+        )
+if CONSTANT_INITIAL_CO2:
+    if INITIALIZATION == "observed":
+        ppm = float(co2_values(co2, atmosphere.time).isel(time=-1))
+        current = int(atmosphere.time.dt.year[-1]) * 12 + int(
+            atmosphere.time.dt.month[-1]
+        )
         co2 = co2.where(co2.time.dt.year * 12 + co2.time.dt.month <= current, ppm)
-    logging.info("Control: future CO2 fixed at %.4f ppm", ppm)
-model = MonthlyDiffusionV1.load(args.checkpoint, device=args.device)
-if not all(k in model.stages for k in ("autoencoder", "diffusion")):
-    raise RuntimeError("Finish both training stages before starting the long rollout")
-logging.info(
-    "Forecast device %s | selected stages %s | %d members × %d months",
-    model.device,
-    model.stages,
-    args.members,
-    args.months,
-)
-# Encode two observed history months, or draw the requested noise histories.
+    else:
+        ppm = float(co2.sel(time=START).values[0])
+        co2 = co2.copy(data=co2.values * 0 + ppm)
+
+model = load_models(RUN_DIR, device=DEVICE)
 forecast = Forecast(
     model,
-    a,
-    o,
+    atmosphere,
+    ocean,
     co2=co2,
-    members=args.members,
-    seed=args.seed,
-    gaussian_start=args.gaussian_start,
-    encoded_noise_start=args.encoded_noise_start,
-    stochastic_start=args.stochastic_start,
+    members=MEMBERS,
+    seed=SEED,
+    gaussian_start=START if INITIALIZATION == "gaussian" else None,
+    encoded_noise_start=START if INITIALIZATION == "encoded_noise" else None,
+    stochastic_start=START if INITIALIZATION == "stochastic" else None,
 )
-
-# Check forcing coverage and archive identity before drawing any forecast months.
 metadata = forecast_metadata(
     forecast,
-    months=args.months,
-    spinup_months=args.spinup_months,
-    gaussian_start=args.gaussian_start,
-    encoded_noise_start=args.encoded_noise_start,
-    stochastic_start=args.stochastic_start,
-    save_spinup_latents=args.save_spinup_latents,
+    months=MONTHS,
+    spinup_months=SPINUP_MONTHS,
+    gaussian_start=START if INITIALIZATION == "gaussian" else None,
+    encoded_noise_start=START if INITIALIZATION == "encoded_noise" else None,
+    stochastic_start=START if INITIALIZATION == "stochastic" else None,
+    save_spinup_latents=SAVE_SPINUP_LATENTS,
 )
 prepare_archive(
     forecast,
-    args.output,
+    OUTPUT,
     metadata,
-    resume=args.resume,
-    extend=args.extend,
-    spinup_months=args.spinup_months,
-    save_spinup_latents=args.save_spinup_latents,
-    save_initial_state=noise_start is not None or args.spinup_months > 0,
+    resume=RESUME,
+    extend=EXTEND,
+    spinup_months=SPINUP_MONTHS,
+    save_spinup_latents=SAVE_SPINUP_LATENTS,
+    save_initial_state=INITIALIZATION != "observed" or SPINUP_MONTHS > 0,
 )
 
-# Spin-up keeps history and noise continuous, but discards the physical output.
-spin_up(
-    forecast,
-    args.spinup_months,
-    path=args.output,
-    save_latents=args.save_spinup_latents,
-)
+# Resuming restores history, persistent noise, and RNG before advancing spin-up.
+spin_up(forecast, SPINUP_MONTHS, path=OUTPUT, save_latents=SAVE_SPINUP_LATENTS)
 
-# Predict one month, decode to physical fields, then save fields + restart state.
-# On resume, forecast.step already points to the last completed month.
-for step in range(forecast.step, args.spinup_months + args.months):
+# Predict, decode, then atomically save each month and the matching restart state.
+for step in range(forecast.step, SPINUP_MONTHS + MONTHS):
     atmosphere_latent, ocean_latent = next(forecast)
     fields = xr.merge(
         model.decode(atmosphere_latent, ocean_latent, co2=co2), compat="no_conflicts"
@@ -241,16 +144,11 @@ for step in range(forecast.step, args.spinup_months + args.months):
     fields = fields.assign_coords(co2=co2_values(co2, fields.time))
     fields.attrs.update(
         checkpoint_sha256=metadata["checkpoint_sha256"],
-        seed=args.seed,
+        seed=SEED,
         initialization_time=metadata["initialization_time"],
         history_order="current, previous",
     )
-    write_month(fields, forecast, args.output, spinup_months=args.spinup_months)
-    saved_months = forecast.step - args.spinup_months
-    if saved_months % 12 == 0 or saved_months == args.months:
-        logging.info(
-            "Saved forecast month %d/%d (%s)",
-            saved_months,
-            args.months,
-            str(fields.time.values[0])[:10],
-        )
+    write_month(fields, forecast, OUTPUT, spinup_months=SPINUP_MONTHS)
+    saved_months = forecast.step - SPINUP_MONTHS
+    if saved_months % 12 == 0 or saved_months == MONTHS:
+        print(f"Saved month {saved_months}/{MONTHS}: {str(fields.time.values[0])[:7]}")

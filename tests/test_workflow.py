@@ -6,14 +6,13 @@ from monthly_diffusion import MonthlyDiffusionV1, open_rollout
 
 
 @pytest.mark.parametrize("device", ["cpu", "mps"])
-def test_staged_xarray_and_streaming(tiny_data, tmp_path, device):
+def test_staged_xarray_and_streaming(tiny_data, tmp_path, device, train_small_run):
     if device == "mps" and not torch.backends.mps.is_available():
         pytest.skip("MPS unavailable")
     a, o, s, c, config = tiny_data
-    model = MonthlyDiffusionV1(statics=s, config=config, device=device)
-    model.train(a.isel(time=slice(0, 12)), o.isel(time=slice(0, 12)),
-        validation=(a.isel(time=slice(12, None)), o.isel(time=slice(12, None))), co2=c, directory=tmp_path/"train")
-    assert model.stages["autoencoder"]["epoch"] == 1
+    model = train_small_run(tiny_data, tmp_path / "train", device=device)
+    model.save(tmp_path / "train/model.pt")
+    assert model.stages["autoencoder"]["atmosphere"]["epoch"] == 1
     assert model.stages["diffusion"]["epoch"] == 1
     assert all(not p.requires_grad for p in model.autoencoder.parameters())
     z, absent = model.encode(a.isel(time=slice(0, 2)), co2=c)
@@ -47,26 +46,3 @@ def test_staged_xarray_and_streaming(tiny_data, tmp_path, device):
     actual = next(two)
     xr.testing.assert_equal(expected[0], actual[0])
     xr.testing.assert_equal(expected[1], actual[1])
-
-
-def test_training_resume_matches_uninterrupted(tmp_path):
-    from monthly_diffusion.training.common import fit
-    from monthly_diffusion import TrainingConfig
-    from torch.utils.data import Dataset
-    class Data(Dataset):
-        def __len__(self): return 8
-        def __getitem__(self, i): return {"x": torch.tensor([float(i)])}
-    def objective(model, batch):
-        return {"loss": ((model(batch["x"])-2*batch["x"])**2).mean()}
-    torch.manual_seed(1)
-    a = torch.nn.Linear(1, 1)
-    b = torch.nn.Linear(1, 1)
-    b.load_state_dict(a.state_dict())
-    config = TrainingConfig(max_epochs=2)
-    fit(a, Data(), Data(), objective, config, tmp_path/"whole")
-    config.max_epochs = 1
-    fit(b, Data(), Data(), objective, config, tmp_path/"resume")
-    config.max_epochs = 2
-    fit(b, Data(), Data(), objective, config, tmp_path/"resume", resume=True)
-    for x, y in zip(a.parameters(), b.parameters()):
-        torch.testing.assert_close(x, y, rtol=0, atol=0)

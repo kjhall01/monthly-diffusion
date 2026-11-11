@@ -43,45 +43,44 @@ The top level of `scripts/` contains one sequence:
 6. `analyze_ae_reconstruction.py`
 7. `analyze_ar_rollout.py`
 
-Start with:
+Set `RUN_DIR` to the same directory in each script. Set the data paths and time
+periods in the atmosphere script, then run the files in order:
 
 ```bash
-python scripts/train_atmosphere_autoencoder.py --run runs/e3sm --data examples/e3sm.yaml
+python scripts/train_atmosphere_autoencoder.py
+python scripts/train_ocean_autoencoder.py
+python scripts/train_latent_diffusion.py
+python scripts/generate_ae_reconstruction.py
+python scripts/generate_ar_rollout.py
+python scripts/analyze_ae_reconstruction.py
+python scripts/analyze_ar_rollout.py
 ```
 
-Then use `--run runs/e3sm` for each later script.
-See the [workflow guide](scripts/README.md) for complete commands, outputs,
-resuming, and shorter-period runs. The default analysis covers 1850–2100, with
-anomalized global time series, reconstruction errors, climatological biases,
-and Robinson maps of the late-minus-early response.
+The values at the top are ordinary editable Python. There is no `argparse`,
+`ModelConfig`, `main()` or call to a package trainer in these seven scripts.
+Each training script contains its optimizer, loss, epoch/batch loop, validation,
+checkpoint selection and resume logic. An AE script constructs only its own AE;
+diffusion training reads cached latents and constructs only the transition.
 
-These scripts execute top to bottom with no `main()` wrappers or locally defined
-helpers. Parameters and stage operations are visible in the scripts; reusable
-calculations live in the package. Each AE selects its own best validation epoch.
-The architecture and checkpoint format stay the same; independent selection can
-produce different learned weights from the old paired trainer. Historical
-experiments live in `scripts/research/`, shell launchers in `scripts/recipes/`,
-and the paired trainer in `scripts/legacy/`.
+The [workflow guide](scripts/README.md) documents the shared run directory,
+parameters, outputs and resume behavior. Model files, preprocessing, latent
+caches, histories, reconstructions, forecasts and analyses all live under
+`RUN_DIR`. Small utilities and model loading live in the package; training lives
+in the scripts. The [code map](docs/code-map.md) shows where to make changes.
 
-The [code map](docs/code-map.md) gives the reading order and helper locations.
-
-## Public API
-
-The convenience API remains available for notebooks and the historical paired
-training sequence:
+## Loading and inference
 
 ```python
-from monthly_diffusion import MonthlyDiffusionV1
+from monthly_diffusion import load_models, load_autoencoder, load_diffusion, MonthlyDiffusionV1
 
-# Each component is an xr.Dataset(time, lat, lon) with physical-unit fields.
-# statics is an xr.Dataset(lat, lon) containing phi_s and lsm.
-# co2 is a monthly xr.DataArray(time), in ppm, covering both splits.
-model = MonthlyDiffusionV1(statics=statics, config='examples/model.yaml')
-model.train(
-    train_atmos, train_ocean,
-    validation=(val_atmos, val_ocean), co2=co2,
-    directory='runs/e3sm', resume=False,
-)
+# Each component can be loaded independently from the standard directory.
+atmosphere_ae, atmosphere_info = load_autoencoder('runs/my-run', 'atmosphere')
+ocean_ae, ocean_info = load_autoencoder('runs/my-run', 'ocean')
+diffusion, diffusion_info = load_diffusion('runs/my-run')
+
+# Load the physical xarray interface for encode/decode and forecasting.
+model = load_models('runs/my-run')
+# Use diffusion=False to reconstruct before diffusion training is complete.
 
 za, zo = model.encode(atmos, ocean, co2=co2)
 reconstructed_atmos, reconstructed_ocean = model.decode(za, zo, co2=co2)
@@ -94,13 +93,16 @@ atmos_next, ocean_next = model.decode(za_next, zo_next, co2=future_co2)
 
 fields = model.rollout(history_atmos, history_ocean, co2=future_co2,
                        months=120, members=5, seed=42,
-                       path='runs/e3sm/ssp370', resume=True)
-model.save('runs/e3sm/export.pt')
-loaded = MonthlyDiffusionV1.load('runs/e3sm/export.pt')
+                       path='runs/my-run/ssp370', resume=True)
+model.save('runs/my-run/export.pt')
+loaded = MonthlyDiffusionV1.load('runs/my-run/export.pt')
 ```
 
-The wrapper's `.train()` means **fit**; atomic PyTorch modules retain normal
-`.train()`/`.eval()` semantics. Keyword constructor arguments override YAML.
+The old `model.train()` and package training functions have been removed.
+Torch modules retain their normal `.train()`/`.eval()` mode switches. Existing
+combined checkpoints still load with `MonthlyDiffusionV1.load(path)`. Historical
+paired-training recipes use `scripts/legacy/train_model.py`, whose loops now
+live in that script. New training uses the component directory layout above.
 `model.autoencoder` and `model.transition` expose the ordinary PyTorch modules.
 The default device prefers MPS, then CUDA, then CPU; `device='cpu'` is explicit.
 
@@ -122,7 +124,7 @@ not copies of their initialization states.
 ### Stochastic initialization without observed states
 
 ```python
-model = MonthlyDiffusionV1.load('runs/my-run/model.pt')
+model = load_models('runs/my-run')
 forecast = model.initialize(co2=284.27, stochastic_start='1850-01',
                             members=5, seed=20260716)
 za, zo = next(forecast)  # January 1850 prediction; subsequent months follow normally
@@ -160,7 +162,7 @@ initialization and the older `gaussian_start` / `encoded_noise_start` options
 are unchanged. A CO₂ trajectory must cover both history months and generated
 months; a scalar, as above, is constant. No backward extrapolation is automatic.
 
-New `.train()` runs save the initialization moments automatically. For older
+The AE scripts save the initialization moments during preprocessing. For older
 checkpoints, fit once and save a **new** export (no neural weights change):
 
 ```python

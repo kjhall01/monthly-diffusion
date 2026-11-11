@@ -71,11 +71,26 @@ class Preprocessor:
 
     def fit(self, atmosphere, ocean, statics, co2):
         """Inputs MUST already be restricted to training times; no split inference."""
+        self._fit({"atmosphere": atmosphere, "ocean": ocean}, statics, co2)
+
+    def fit_component(self, fields, component, statics, co2):
+        """Fit one AE's statistics without reading or preparing the other component."""
+        if component not in ("atmosphere", "ocean") or any(
+            spec.component != component for spec in self.variables
+        ):
+            raise ValueError("All variables must belong to the supplied component")
+        self._fit({component: fields}, statics, co2)
+
+    def _fit(self, datasets, statics, co2):
         if self.stats:
             raise RuntimeError(
                 "Preprocessing is already fitted; construct a fresh instance to refit"
             )
-        if getattr(self, "ocean_support", "per_variable") == "sst":
+        if (
+            "ocean" in datasets
+            and getattr(self, "ocean_support", "per_variable") == "sst"
+        ):
+            ocean = datasets["ocean"]
             if "sst" not in ocean:
                 raise ValueError("SST-based ocean support requires sst")
             self.ocean_support_mask = np.isfinite(ocean.sst).any("time").compute()
@@ -86,9 +101,9 @@ class Preprocessor:
                 fitted_start=str(ocean.time.values[0]),
                 fitted_end=str(ocean.time.values[-1]),
             )
-            ocean = self.mask_ocean(ocean)
+            datasets = dict(datasets, ocean=self.mask_ocean(ocean))
         for spec in self.variables:
-            ds = atmosphere if spec.component == "atmosphere" else ocean
+            ds = datasets[spec.component]
             x = transform(ds[spec.name].astype("float64"), spec).where(
                 np.isfinite(ds[spec.name])
             )
@@ -112,11 +127,9 @@ class Preprocessor:
             float(statics.phi_s.mean()),
             max(float(statics.phi_s.std()), 1.0e-6),
         )
-        self.training_times = atmosphere.time.values.copy()
+        self.training_times = next(iter(datasets.values())).time.values.copy()
         self.training_co2 = co2.copy(deep=True)
-        self.source_attrs = dict(
-            atmosphere=dict(atmosphere.attrs), ocean=dict(ocean.attrs)
-        )
+        self.source_attrs = {name: dict(ds.attrs) for name, ds in datasets.items()}
 
     def encode(self, ds, component):
         if component == "ocean":

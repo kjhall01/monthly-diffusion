@@ -30,8 +30,11 @@ class CoupledDiffusionConfig:
 
 
 class CoupledLatentDiffusion(nn.Module):
-    def __init__(self, config=CoupledDiffusionConfig()):
+    def __init__(self, config=None, **parameters):
         super().__init__()
+        if config is not None and parameters:
+            raise ValueError("Supply individual diffusion parameters or config, not both")
+        config = config or CoupledDiffusionConfig(**parameters)
         self.config = config
         self.coupling = Coupling(config.coupling)
         a, o = config.atmosphere_latent_channels, config.ocean_latent_channels

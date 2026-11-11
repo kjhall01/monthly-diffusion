@@ -1,55 +1,35 @@
 """Step 7: compare free-running climate statistics with the reference data."""
 
 from pathlib import Path
-import argparse
-import logging
+from monthly_diffusion.run_files import check_script_arguments
 import dask
 import xarray as xr
-import yaml
+from monthly_diffusion.run_files import read_run
 from monthly_diffusion.data.sources import open_canonical_state
 from monthly_diffusion.inference.archive import open_rollout
 from monthly_diffusion.analysis.trajectory import compare_trajectories
 from monthly_diffusion.analysis.long_rollout import save_dataset
 
+check_script_arguments()
+
 RUN_DIR = Path("runs/production")
 BASELINE = (1966, 2006)
 EARLY, LATE = (1850, 1880), (2070, 2100)
 
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--run", type=Path, default=RUN_DIR)
-parser.add_argument("--data", type=Path, help="Defaults to run/data_sources.yaml")
-parser.add_argument("--input", type=Path, help="Defaults to run/ar_rollout")
-parser.add_argument("--output", type=Path, help="Defaults to run/analysis/ar")
-parser.add_argument(
-    "--variables", nargs="+", help="Defaults to all reconstructed physical variables"
-)
-parser.add_argument(
-    "--baseline", type=int, nargs=2, default=BASELINE, metavar=("FIRST", "LAST")
-)
-parser.add_argument(
-    "--early", type=int, nargs=2, default=EARLY, metavar=("FIRST", "LAST")
-)
-parser.add_argument(
-    "--late", type=int, nargs=2, default=LATE, metavar=("FIRST", "LAST")
-)
-parser.add_argument(
-    "--skip-forced-response",
-    action="store_true",
-    help="For sources without both response periods",
-)
-parser.add_argument(
-    "--no-plots", action="store_true", help="Save numerical results only"
-)
-args = parser.parse_args()
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s")
-source = yaml.safe_load((args.data or args.run / "data_sources.yaml").read_text())
+INPUT = RUN_DIR / "ar_rollout"
+OUTPUT = RUN_DIR / "analysis/ar"
+VARIABLES = None  # e.g. ["t2m", "sst"]; None means all physical fields
+SKIP_FORCED_RESPONSE = False
+MAKE_PLOTS = True
+
+source = read_run(RUN_DIR)["source"]
 atmosphere, ocean, _ = open_canonical_state(
     source["state_zarr"], expected_attrs=source.get("expected_attrs")
 )
 reference = xr.merge([atmosphere, ocean], join="exact")
-archive = args.input or args.run / "ar_rollout"
+archive = INPUT
 generated = open_rollout(archive)
-variables = args.variables or [
+variables = VARIABLES or [
     name for name in reference.data_vars if name in generated.data_vars
 ]
 if not variables or any(
@@ -58,9 +38,9 @@ if not variables or any(
     raise ValueError(
         "Choose physical variables present in both reference and generated data"
     )
-output = args.output or args.run / "analysis/ar"
+output = OUTPUT
 output.mkdir(parents=True, exist_ok=True)
-if not args.no_plots:
+if MAKE_PLOTS:
     from monthly_diffusion.analysis.trajectory_plots import plot_series, plot_maps
 
 # Process one variable in monthly blocks. Only reduced time series and maps are
@@ -70,9 +50,9 @@ for variable in variables:
         reference[variable].chunk({"time": 12}),
         generated[variable].chunk({"time": 12}),
         reconstruction=False,
-        baseline=args.baseline,
-        early=None if args.skip_forced_response else args.early,
-        late=args.late,
+        baseline=BASELINE,
+        early=None if SKIP_FORCED_RESPONSE else EARLY,
+        late=LATE,
     )
     with dask.config.set(scheduler="threads", num_workers=4):
         results = xr.merge([series, maps]).compute()
@@ -83,9 +63,9 @@ for variable in variables:
         )
     save_dataset(series, output / f"{variable}_series.nc")
     save_dataset(maps, output / f"{variable}_maps.nc")
-    if not args.no_plots:
+    if MAKE_PLOTS:
         plot_series(series, output / f"{variable}_series.png")
         plot_maps(maps, output / f"{variable}_maps.png")
-    logging.info("Saved %s diagnostics to %s", variable, output)
+    print(f"Saved {variable} diagnostics to {output}")
 generated.close()
 reference.close()

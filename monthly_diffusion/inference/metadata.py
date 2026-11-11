@@ -1,6 +1,7 @@
 """Describe initialization, forcing, and checkpoint identity for a forecast."""
 
 import hashlib
+import json
 import numpy as np
 import xarray as xr
 from ..data.dataloader import next_month, co2_values
@@ -51,6 +52,18 @@ def forecast_metadata(
         runtime_device=str(model.device),
         sampler="DPM-Solver++ 2M midpoint; 999,674,373,120,29,6,0",
     )
+    if hasattr(model, "inference_batch_size"):
+        metadata["inference_batch_size"] = model.inference_batch_size
+    if hasattr(model, "run_identity"):
+        metadata["run_identity"] = model.run_identity
+        metadata["training_settings"] = json.loads(json.dumps(model.training_settings))
+    if hasattr(model, "component_parameters"):
+        metadata["component_parameters"] = json.loads(
+            json.dumps(model.component_parameters)
+        )
+        metadata["transition_parameters"] = json.loads(
+            json.dumps(model.transition_parameters)
+        )
     support = getattr(getattr(model, "preprocessor", None), "ocean_support_mask", None)
     if support is not None:
         metadata["ocean_support"] = dict(

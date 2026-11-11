@@ -1,4 +1,4 @@
-"""The editable scripts and the convenience API must select identical models."""
+"""The historical paired script retains checkpoint resume and forecast behavior."""
 
 from pathlib import Path
 import runpy
@@ -8,7 +8,7 @@ import numpy as np
 import xarray as xr
 import yaml
 
-from monthly_diffusion import MonthlyDiffusionV1, open_rollout
+from monthly_diffusion import MonthlyDiffusionV1, open_rollout, load_models
 from monthly_diffusion.data import sources
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +27,7 @@ def test_legacy_imports_keep_the_public_model_class():
     assert old_forecast is Forecast
 
 
-def test_training_and_forecast_scripts_match_api(tiny_data, tmp_path, monkeypatch):
+def test_legacy_training_and_forecast_scripts(tiny_data, tmp_path, monkeypatch):
     atmosphere, ocean, statics, _, config = tiny_data
     # Two examples of each calendar month give stochastic initialization a
     # finite local variance. Validation uses different, earlier timestamps.
@@ -59,10 +59,6 @@ def test_training_and_forecast_scripts_match_api(tiny_data, tmp_path, monkeypatc
     config_file = tmp_path / "model.yaml"
     config.save(config_file)
 
-    expected = MonthlyDiffusionV1(statics=statics, config=config, device="cpu")
-    expected.train(
-        atmosphere, ocean, validation=validation, co2=co2, directory=tmp_path / "api"
-    )
     arguments = [
         str(ROOT / "scripts/legacy/train_model.py"),
         str(source_file),
@@ -80,13 +76,7 @@ def test_training_and_forecast_scripts_match_api(tiny_data, tmp_path, monkeypatc
     runpy.run_path(arguments[0], run_name="__main__")
     checkpoint = tmp_path / "script/model.pt"
     actual = MonthlyDiffusionV1.load(checkpoint, device="cpu")
-    assert actual.weight_digest() == expected.weight_digest()
-    assert actual.stages == expected.stages
-    for actual_latent, expected_latent in zip(
-        actual.encode(atmosphere, ocean, co2=co2),
-        expected.encode(atmosphere, ocean, co2=co2),
-    ):
-        xr.testing.assert_identical(actual_latent, expected_latent)
+    expected = actual
 
     cache_time = (tmp_path / "script/latents.pt").stat().st_mtime_ns
     monkeypatch.setattr(sys, "argv", arguments + ["--resume"])
@@ -144,4 +134,25 @@ def test_training_and_forecast_scripts_match_api(tiny_data, tmp_path, monkeypatc
             xr.testing.assert_identical(
                 archived.compute(), expected_fields.astype("float32")
             )
+        assert first_month.stat().st_mtime_ns == first_write
+
+        # The directory loader also continues existing combined-checkpoint archives.
+        loaded = load_models(tmp_path / "script", device="cpu")
+        extended = loaded.rollout(
+            *initial_states,
+            co2=co2,
+            months=4,
+            members=2,
+            seed=41,
+            path=output,
+            resume=True,
+            extend=True,
+            **options,
+        )
+        expected_extended = expected.rollout(
+            *initial_states, co2=co2, months=4, members=2, seed=41, **options
+        )
+        xr.testing.assert_identical(
+            extended.compute(), expected_extended.astype("float32")
+        )
         assert first_month.stat().st_mtime_ns == first_write

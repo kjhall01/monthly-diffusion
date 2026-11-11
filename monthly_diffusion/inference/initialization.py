@@ -81,11 +81,16 @@ def initialize_history(
         times = [
             (first - np.timedelta64(k, "M")).astype("datetime64[ns]") for k in (1, 2)
         ]
-        graph = model.geometry.graphs[f"mesh_l{len(model.config.mesh_levels) - 1}"]
         rng = np.random.default_rng(seed)  # Separate from diffusion's Torch RNG stream.
         history, templates = [], []
+        graph = model.geometry.graphs[f"mesh_l{len(model.config.mesh_levels) - 1}"]
         for component in ("atmosphere", "ocean"):
-            shape = (members, 2, graph.n_nodes, model.config.latent_channels)
+            channels = (
+                model.component_parameters[component]["latent_channels"]
+                if hasattr(model, "component_parameters")
+                else model.config.latent_channels
+            )
+            shape = (members, 2, graph.n_nodes, channels)
             values = rng.standard_normal(shape).astype("float32")
             history.append(torch.from_numpy(values).to(model.device))
             templates.append(
@@ -94,7 +99,7 @@ def initialize_history(
                     dims=("node", "channel"),
                     coords=dict(
                         node=np.arange(graph.n_nodes),
-                        channel=np.arange(model.config.latent_channels),
+                        channel=np.arange(channels),
                         node_lat=("node", graph.lat.cpu().numpy()),
                         node_lon=("node", graph.lon.cpu().numpy()),
                     ),
