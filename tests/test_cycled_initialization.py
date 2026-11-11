@@ -1,6 +1,4 @@
 """Check cycling changes only current history, preserves dates and all fields."""
-import importlib.util
-from pathlib import Path
 from types import SimpleNamespace
 import numpy as np
 import torch
@@ -8,10 +6,7 @@ import xarray as xr
 from monthly_diffusion.forecast import Forecast
 from test_gaussian_forecast import ToyModel
 
-spec = importlib.util.spec_from_file_location("cycled_initialization",
-    Path(__file__).resolve().parents[1]/"scripts/pilot_cycled_initialization.py")
-pilot = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(pilot)
+from monthly_diffusion.experiments import pilot_cycled_initialization as pilot
 
 
 class CycleModel(ToyModel):

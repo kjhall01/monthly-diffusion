@@ -45,8 +45,6 @@ class MLP(nn.Module):
 
 
 class DynamicSphericalConv(nn.Module):
-
-
     def __init__(
         self,
         in_dim: int,
@@ -59,7 +57,6 @@ class DynamicSphericalConv(nn.Module):
         layer_norm: bool = True,
     ) -> None:
         super().__init__()
-
 
         self.in_dim = int(in_dim)
         self.out_dim = int(out_dim)
@@ -78,7 +75,6 @@ class DynamicSphericalConv(nn.Module):
             hidden_dim=self.hidden_dim,
         )
         self.out_proj = nn.Linear(self.out_dim, self.out_dim)
-
 
     def forward(
         self,
@@ -116,8 +112,12 @@ class DynamicSphericalConv(nn.Module):
         aggregated.scatter_add_(dim=1, index=receiver_index, src=messages)
 
         if self.aggregation == "mean":
-            counts = torch.zeros((n_target,), dtype=messages.dtype, device=messages.device)
-            counts.scatter_add_(0, receiver, torch.ones_like(receiver, dtype=messages.dtype))
+            counts = torch.zeros(
+                (n_target,), dtype=messages.dtype, device=messages.device
+            )
+            counts.scatter_add_(
+                0, receiver, torch.ones_like(receiver, dtype=messages.dtype)
+            )
             aggregated = aggregated / counts.clamp_min(1.0).view(1, -1, 1)
 
         update = self.out_proj(aggregated)

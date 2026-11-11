@@ -1,4 +1,5 @@
 """Two explicit coupling choices, independent of temporal noise persistence."""
+
 from enum import Enum
 import math
 import torch
@@ -16,5 +17,5 @@ def ar1_noise(like, previous=None, *, tau_months, innovation=None):
     innovation = torch.randn_like(like) if innovation is None else innovation
     if previous is None:
         return innovation
-    alpha = math.exp(-1./tau_months) if tau_months else 0.
-    return alpha*previous + math.sqrt(1-alpha**2)*innovation
+    alpha = math.exp(-1.0 / tau_months) if tau_months else 0.0
+    return alpha * previous + math.sqrt(1 - alpha**2) * innovation

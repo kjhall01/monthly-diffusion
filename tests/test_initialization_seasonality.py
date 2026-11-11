@@ -1,12 +1,9 @@
 """Keep mean-state tests separate from descriptive anomaly diagnostics."""
-from pathlib import Path
-import sys
 import numpy as np
 import pandas as pd
 import xarray as xr
 
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"scripts"))
-import diagnose_initialization_seasonality as diagnostic
+from monthly_diffusion.experiments import diagnose_initialization_seasonality as diagnostic
 
 
 def test_own_month_trend_and_ensemble_subtraction(tmp_path,monkeypatch):

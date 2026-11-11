@@ -37,7 +37,9 @@ class SphericalMapTensorCache:
     """Cache edge tensors moved from CPU graph maps to a runtime device/dtype."""
 
     def __init__(self) -> None:
-        self._cache: dict[tuple[int, torch.device, torch.dtype], RuntimeEdgeTensors] = {}
+        self._cache: dict[
+            tuple[int, torch.device, torch.dtype], RuntimeEdgeTensors
+        ] = {}
 
     def get(
         self,
@@ -68,7 +70,9 @@ class SphericalMapStencilCache:
     """Cache fixed-in-degree stencil tensors for convolution-style operators."""
 
     def __init__(self) -> None:
-        self._cache: dict[tuple[int, torch.device, torch.dtype], RuntimeStencilTensors] = {}
+        self._cache: dict[
+            tuple[int, torch.device, torch.dtype], RuntimeStencilTensors
+        ] = {}
 
     def get(
         self,
@@ -95,7 +99,9 @@ class SphericalMapStencilCache:
         self._cache.clear()
 
 
-def _build_fixed_indegree_stencil(graph_map: SphericalMap) -> tuple[torch.Tensor, torch.Tensor, int]:
+def _build_fixed_indegree_stencil(
+    graph_map: SphericalMap,
+) -> tuple[torch.Tensor, torch.Tensor, int]:
     edge_set = graph_map.edge_set
     sender = edge_set.sender.detach().cpu().to(torch.long)
     receiver = edge_set.receiver.detach().cpu().to(torch.long)
@@ -124,7 +130,9 @@ def _build_fixed_indegree_stencil(graph_map: SphericalMap) -> tuple[torch.Tensor
         raise ValueError(f"Map {graph_map.name!r} has zero incoming edges per target.")
 
     stencil_sender = torch.empty((n_target, degree), dtype=torch.long)
-    stencil_edge_attr = torch.empty((n_target, degree, edge_attr.shape[-1]), dtype=edge_attr.dtype)
+    stencil_edge_attr = torch.empty(
+        (n_target, degree, edge_attr.shape[-1]), dtype=edge_attr.dtype
+    )
     fill = torch.zeros((n_target,), dtype=torch.long)
 
     for edge_idx in range(n_edges):

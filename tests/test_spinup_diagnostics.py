@@ -1,14 +1,9 @@
 """Keep spin-up drift visible and avoid member-splicing in temporal metrics."""
-import importlib.util
-from pathlib import Path
 import numpy as np
 import torch
 import pytest
 
-spec = importlib.util.spec_from_file_location('spinup_diagnostics',
-    Path(__file__).resolve().parents[1]/'scripts/diagnose_spinup_latents.py')
-analysis = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(analysis)
+from monthly_diffusion.experiments import diagnose_spinup_latents as analysis
 
 
 def test_fixed_climatology_preserves_offset_and_drift():

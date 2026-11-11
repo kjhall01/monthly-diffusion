@@ -1,13 +1,8 @@
 """Fixed anomaly baselines and synchronization must not hide level errors."""
-import importlib.util
-from pathlib import Path
 import numpy as np
 import pandas as pd
 
-spec=importlib.util.spec_from_file_location("cycled_coupling",
-    Path(__file__).resolve().parents[1]/"scripts/diagnose_cycled_coupling.py")
-analysis=importlib.util.module_from_spec(spec)
-spec.loader.exec_module(analysis)
+from monthly_diffusion.experiments import diagnose_cycled_coupling as analysis
 
 
 def test_fixed_monthly_baseline_preserves_offset():

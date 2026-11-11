@@ -1,16 +1,11 @@
 """Per-degree Niño3.4 plots must not mistake +1 SD for +1 degree Celsius."""
-import importlib.util
-from pathlib import Path
 import numpy as np
 import pytest
 import xarray as xr
 
 from monthly_diffusion.analysis.climate import internal_variability, teleconnection
 
-path = Path(__file__).parents[1]/"scripts/render_publication_teleconnections.py"
-spec = importlib.util.spec_from_file_location("publication_teleconnections", path)
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+from monthly_diffusion.experiments import render_publication_teleconnections as module
 
 
 def make_products(root):

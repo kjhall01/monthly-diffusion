@@ -1,13 +1,8 @@
 """Do not mistake a latent spatial climatology or bias for temporal spread."""
-import importlib.util
-from pathlib import Path
 
 import numpy as np
 
-spec = importlib.util.spec_from_file_location(
-    "encoded_noise_comparison", Path(__file__).parents[1]/"scripts/compare_encoded_noise.py")
-audit = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(audit)
+from monthly_diffusion.experiments import compare_encoded_noise as audit
 
 
 def test_identical_latents_have_unit_spread_and_zero_mean_pattern_error():

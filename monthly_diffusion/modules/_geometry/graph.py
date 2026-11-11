@@ -51,7 +51,9 @@ class SphericalGraph:
         lon = _cpu_float_tensor(self.lon, name="lon") % 360.0
 
         if xyz.ndim != 2 or xyz.shape[1] != 3:
-            raise ValueError(f"SphericalGraph {self.name!r}: xyz must have shape [N, 3].")
+            raise ValueError(
+                f"SphericalGraph {self.name!r}: xyz must have shape [N, 3]."
+            )
         n_nodes = int(xyz.shape[0])
         if lat.shape != (n_nodes,):
             raise ValueError(
@@ -62,11 +64,15 @@ class SphericalGraph:
                 f"SphericalGraph {self.name!r}: lon must have shape [{n_nodes}], got {tuple(lon.shape)}."
             )
         if not torch.isfinite(xyz).all():
-            raise ValueError(f"SphericalGraph {self.name!r}: xyz contains non-finite values.")
+            raise ValueError(
+                f"SphericalGraph {self.name!r}: xyz contains non-finite values."
+            )
 
         norm = torch.linalg.norm(xyz, dim=-1, keepdim=True)
         if torch.any(norm <= 1.0e-12):
-            raise ValueError(f"SphericalGraph {self.name!r}: xyz contains zero-length vectors.")
+            raise ValueError(
+                f"SphericalGraph {self.name!r}: xyz contains zero-length vectors."
+            )
         xyz = xyz / norm
 
         area = None
@@ -123,7 +129,9 @@ class EdgeSet:
                 f"got {tuple(sender.shape)} and {tuple(receiver.shape)}."
             )
         if edge_attr.ndim != 2:
-            raise ValueError(f"EdgeSet {self.name!r}: edge_attr must have shape [E, D].")
+            raise ValueError(
+                f"EdgeSet {self.name!r}: edge_attr must have shape [E, D]."
+            )
         if edge_attr.shape[0] != sender.shape[0]:
             raise ValueError(
                 f"EdgeSet {self.name!r}: edge_attr first dimension must equal edge count "

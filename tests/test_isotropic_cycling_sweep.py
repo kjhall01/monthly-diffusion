@@ -1,14 +1,11 @@
 """Shared cycling prefix, forecast dates, and exact annual restart."""
-from pathlib import Path
-import sys
 
 import numpy as np
 import torch
 
 from test_cycled_initialization import CycleModel
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import experiment_isotropic_cycling_sweep as sweep
+from monthly_diffusion.experiments import experiment_isotropic_cycling_sweep as sweep
 
 
 def test_real_histories_are_adjacent_calendar_matched_and_balanced():

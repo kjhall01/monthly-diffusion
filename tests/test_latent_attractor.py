@@ -1,7 +1,4 @@
 """Initialization pairing, exact resume, and anomaly/spectrum conventions."""
-import importlib.util
-from pathlib import Path
-import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -10,11 +7,7 @@ import xarray as xr
 
 from test_gaussian_forecast import ToyModel
 
-scripts=Path(__file__).parents[1]/"scripts"
-sys.path.insert(0,str(scripts))
-spec=importlib.util.spec_from_file_location("latent_attractor",scripts/"diagnose_latent_attractor.py")
-audit=importlib.util.module_from_spec(spec)
-spec.loader.exec_module(audit)
+from monthly_diffusion.experiments import diagnose_latent_attractor as audit
 
 
 def test_fixed_anomalies_preserve_offset_and_window_removal_does_not_mix_members():

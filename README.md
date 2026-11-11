@@ -4,7 +4,8 @@ A standalone, readable implementation of spherical climate autoencoders and
 coupled monthly latent diffusion. This branch contains the standalone production emulator imported from
 `umd/frozen`. It imports no prototypes, has no implicit parent-repository file
 dependencies, and does not download data. The exact imported source hashes are
-recorded in [production-import.json](docs/production-import.json).
+recorded in [production-import.json](docs/production-import.json). Those hashes
+describe the initial import, before the readability changes on this branch.
 
 The `production/emulator-v1` branch contains the model code, training and forecast
 entry points, analysis tools, example configurations, and tests. Trained
@@ -31,6 +32,23 @@ Python 3.11+, PyTorch, NumPy/SciPy, xarray, cftime, and Zarr 2 are required.
 Cartopy/Matplotlib are optional plotting dependencies. The repository retains its existing [MIT license](LICENSE).
 
 ## Public API
+
+For learning or changing the workflow, start with the scripts:
+
+- [`examples/train_model.py`](examples/train_model.py) shows the parameter values,
+  data split, normalization, AE training, latent caching, and diffusion training
+  in execution order. Edit the Python values directly, or supply `--config` to
+  reproduce an existing YAML recipe. The default parameter values are unchanged.
+- [`examples/forecast.py`](examples/forecast.py) shows initialization, archive
+  resume, spin-up, and the monthly predict/decode/save loop.
+- [`scripts/diagnose_long_rollout.py`](scripts/diagnose_long_rollout.py) shows
+  archive selection, anomaly fitting, index extraction, and the variable loop.
+
+These are executable scripts with no `main()` wrappers or locally defined
+helpers. Import reusable calculations from `monthly_diffusion`, rather than
+importing a script. The [code map](docs/code-map.md) gives the reading order and
+the location of each helper. The convenience API below remains available for
+existing notebooks; the scripts call the individual operations directly.
 
 ```python
 from monthly_diffusion import MonthlyDiffusionV1

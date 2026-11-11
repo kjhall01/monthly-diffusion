@@ -51,7 +51,9 @@ class _Layout:
     bucket_shapes: tuple[tuple[int, int], ...]
 
 
-def _build_layout(graph_map: SphericalMap, device: torch.device, dtype: torch.dtype) -> _Layout:
+def _build_layout(
+    graph_map: SphericalMap, device: torch.device, dtype: torch.dtype
+) -> _Layout:
     edges = graph_map.edge_set
     sender, receiver = edges.sender.cpu(), edges.receiver.cpu()
     attributes = edges.edge_attr.cpu()
@@ -66,7 +68,10 @@ def _build_layout(graph_map: SphericalMap, device: torch.device, dtype: torch.dt
     starts = counts.cumsum(0) - counts
     slots = torch.arange(sender.numel()) - starts[sorted_receiver]
     capacities = torch.tensor(
-        [0 if degree == 0 else 1 << (degree - 1).bit_length() for degree in counts.tolist()],
+        [
+            0 if degree == 0 else 1 << (degree - 1).bit_length()
+            for degree in counts.tolist()
+        ],
         dtype=torch.long,
     )
     buckets, target_order, shapes = [], [], []
@@ -81,23 +86,32 @@ def _build_layout(graph_map: SphericalMap, device: torch.device, dtype: torch.dt
         columns = slots[in_bucket]
         shape = (targets.numel(), width)
         padded_sender = torch.zeros(shape, dtype=torch.long)
-        padded_attributes = torch.zeros((*shape, attributes.shape[-1]), dtype=attributes.dtype)
+        padded_attributes = torch.zeros(
+            (*shape, attributes.shape[-1]), dtype=attributes.dtype
+        )
         valid = torch.zeros((*shape, 1), dtype=attributes.dtype)
         padded_sender[rows, columns] = sender[selected_edges]
         padded_attributes[rows, columns] = attributes[selected_edges]
         valid[rows, columns] = 1
-        buckets.append(_Bucket(
-            sender=padded_sender.to(device),
-            edge_attr=padded_attributes.to(device=device, dtype=dtype),
-            valid=valid.to(device=device, dtype=dtype),
-            inverse_degree=counts[targets].clamp_min(1).to(device=device, dtype=dtype)
-                .reciprocal().view(1, -1, 1),
-        ))
+        buckets.append(
+            _Bucket(
+                sender=padded_sender.to(device),
+                edge_attr=padded_attributes.to(device=device, dtype=dtype),
+                valid=valid.to(device=device, dtype=dtype),
+                inverse_degree=counts[targets]
+                .clamp_min(1)
+                .to(device=device, dtype=dtype)
+                .reciprocal()
+                .view(1, -1, 1),
+            )
+        )
         target_order.append(targets)
         shapes.append(shape)
     restore = torch.argsort(torch.cat(target_order)).to(device)
     return _Layout(
-        graph_map=graph_map, buckets=tuple(buckets), restore_order=restore,
+        graph_map=graph_map,
+        buckets=tuple(buckets),
+        restore_order=restore,
         real_edges=edges.n_edges,
         global_padded_slots=n_target * int(counts.max()),
         bucketed_slots=sum(n * k for n, k in shapes),
@@ -121,7 +135,9 @@ class BucketedDynamicSphericalConv(DynamicSphericalConv):
             raise ValueError("kernel_channels must be 'scalar' or 'per_channel'.")
         self._bucket_cache: dict[tuple[int, torch.device, torch.dtype], _Layout] = {}
 
-    def _layout(self, graph_map: SphericalMap, device: torch.device, dtype: torch.dtype) -> _Layout:
+    def _layout(
+        self, graph_map: SphericalMap, device: torch.device, dtype: torch.dtype
+    ) -> _Layout:
         key = (id(graph_map), torch.device(device), dtype)
         if key not in self._bucket_cache:
             self._bucket_cache[key] = _build_layout(graph_map, device, dtype)
@@ -137,8 +153,15 @@ class BucketedDynamicSphericalConv(DynamicSphericalConv):
             "bucket_shapes": [list(shape) for shape in layout.bucket_shapes],
         }
 
-    def forward(self, source_nodes, target_nodes, graph_map: SphericalMap, *,
-                source_mask=None, target_mask=None):
+    def forward(
+        self,
+        source_nodes,
+        target_nodes,
+        graph_map: SphericalMap,
+        *,
+        source_mask=None,
+        target_mask=None,
+    ):
         if source_nodes.ndim != 3:
             raise ValueError("source_nodes must have shape [batch, source, channel].")
         batch, n_source, channels = source_nodes.shape
@@ -146,7 +169,11 @@ class BucketedDynamicSphericalConv(DynamicSphericalConv):
             raise ValueError("Source shape does not match ECC or graph map.")
         if graph_map.edge_set.edge_attr_dim != self.edge_attr_dim:
             raise ValueError("Edge feature dimension does not match ECC.")
-        if target_nodes is not None and target_nodes.shape != (batch, graph_map.n_target, self.out_dim):
+        if target_nodes is not None and target_nodes.shape != (
+            batch,
+            graph_map.n_target,
+            self.out_dim,
+        ):
             raise ValueError("Target shape does not match ECC or graph map.")
         if self.residual and target_nodes is None:
             raise ValueError("target_nodes is required when residual=True.")
@@ -157,8 +184,12 @@ class BucketedDynamicSphericalConv(DynamicSphericalConv):
             if mask.ndim == 3 and mask.shape[-1] == 1:
                 mask = mask[..., 0]
             if mask.shape != (batch, expected):
-                raise ValueError(f"ECC masks must have shape {(batch, expected)}, got {tuple(mask.shape)}")
-            return mask.to(device=source_nodes.device, dtype=source_nodes.dtype).clamp(0., 1.)
+                raise ValueError(
+                    f"ECC masks must have shape {(batch, expected)}, got {tuple(mask.shape)}"
+                )
+            return mask.to(device=source_nodes.device, dtype=source_nodes.dtype).clamp(
+                0.0, 1.0
+            )
 
         source_mask = node_mask(source_mask, n_source)
         target_mask = node_mask(target_mask, graph_map.n_target)
@@ -171,7 +202,9 @@ class BucketedDynamicSphericalConv(DynamicSphericalConv):
                 # Keep the zero-gradient connection to source/kernel parameters,
                 # even for an entirely empty graph, like the COO implementation.
                 empty_kernels = self.kernel_mlp(bucket.edge_attr)
-                part = projected.new_zeros((batch, bucket.sender.shape[0], self.out_dim))
+                part = projected.new_zeros(
+                    (batch, bucket.sender.shape[0], self.out_dim)
+                )
                 part = part + projected.sum() * 0 + empty_kernels.sum() * 0
             else:
                 kernels = self.kernel_mlp(bucket.edge_attr)
@@ -184,11 +217,15 @@ class BucketedDynamicSphericalConv(DynamicSphericalConv):
                     if source_mask is None:
                         part = part * bucket.inverse_degree
                     else:
-                        part = part / edge_weight.sum(2).clamp_min(1.)
+                        part = part / edge_weight.sum(2).clamp_min(1.0)
             parts.append(part)
         # One band contains all targets in their original order; regular maps
         # need neither concatenation nor an extra permutation gather.
-        aggregated = parts[0] if len(parts) == 1 else torch.cat(parts, dim=1).index_select(1, layout.restore_order)
+        aggregated = (
+            parts[0]
+            if len(parts) == 1
+            else torch.cat(parts, dim=1).index_select(1, layout.restore_order)
+        )
         update = self.out_proj(aggregated)
         if target_mask is not None:
             update = update * target_mask[..., None]
@@ -207,6 +244,8 @@ class BucketedDynamicSphericalConv(DynamicSphericalConv):
         self.clear_cache()
         return result
 
+
 from ._ecc_reference import DynamicSphericalConv as ReferenceECC
 from ._ecc_padded import PaddedStencilDynamicSphericalConv as PaddedECC
+
 EdgeConditionedConv = BucketedDynamicSphericalConv

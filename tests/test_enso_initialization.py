@@ -1,15 +1,10 @@
 """The readout is training-only and the initialization test changes history only."""
-import importlib.util
-from pathlib import Path
 import numpy as np
 import torch
 import xarray as xr
 from test_gaussian_forecast import ToyModel
 
-spec = importlib.util.spec_from_file_location("enso_initialization",
-    Path(__file__).parents[1]/"scripts/diagnose_enso_initialization.py")
-diagnostic = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(diagnostic)
+from monthly_diffusion.experiments import diagnose_enso_initialization as diagnostic
 
 
 def test_readout_recovers_known_latent_index():

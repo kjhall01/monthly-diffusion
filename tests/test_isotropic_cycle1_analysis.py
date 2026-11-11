@@ -1,13 +1,10 @@
 """The paired initialization comparison must preserve offsets and member identity."""
-from pathlib import Path
-import sys
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import experiment_isotropic_cycle1 as experiment
+from monthly_diffusion.experiments import experiment_isotropic_cycle1 as experiment
 
 
 def test_identical_arms_have_zero_paired_difference(tmp_path, monkeypatch):

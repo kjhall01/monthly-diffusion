@@ -1,13 +1,10 @@
-from pathlib import Path
-import sys
 import numpy as np
 import pandas as pd
 import xarray as xr
 
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"scripts"))
-from diagnose_cycling_modes import fixed_month_anomalies, scalar_statistics, index_fields
-from diagnose_latent_attractor import anomalies
-import diagnose_cycling_modes as diagnostic
+from monthly_diffusion.experiments.diagnose_cycling_modes import fixed_month_anomalies, scalar_statistics, index_fields
+from monthly_diffusion.experiments.diagnose_latent_attractor import anomalies
+from monthly_diffusion.experiments import diagnose_cycling_modes as diagnostic
 import torch
 
 

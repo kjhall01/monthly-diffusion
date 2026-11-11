@@ -12,7 +12,9 @@ def normalize_xyz(xyz: torch.Tensor, eps: float = 1.0e-12) -> torch.Tensor:
 
     tensor = torch.as_tensor(xyz)
     if tensor.shape[-1] != 3:
-        raise ValueError(f"xyz must have last dimension 3, got shape {tuple(tensor.shape)}.")
+        raise ValueError(
+            f"xyz must have last dimension 3, got shape {tuple(tensor.shape)}."
+        )
     norm = torch.linalg.norm(tensor, dim=-1, keepdim=True)
     if torch.any(norm <= eps):
         raise ValueError("Cannot normalize zero-length Cartesian vectors.")
@@ -25,7 +27,9 @@ def latlon_to_xyz(lat_deg: torch.Tensor, lon_deg: torch.Tensor) -> torch.Tensor:
     lat = torch.as_tensor(lat_deg, dtype=torch.float32)
     lon = torch.as_tensor(lon_deg, dtype=torch.float32)
     if lat.shape != lon.shape:
-        raise ValueError(f"lat and lon must have the same shape, got {lat.shape} and {lon.shape}.")
+        raise ValueError(
+            f"lat and lon must have the same shape, got {lat.shape} and {lon.shape}."
+        )
 
     lat_rad = torch.deg2rad(lat.reshape(-1))
     lon_rad = torch.deg2rad(lon.reshape(-1))
@@ -41,7 +45,9 @@ def latlon_to_xyz(lat_deg: torch.Tensor, lon_deg: torch.Tensor) -> torch.Tensor:
     return normalize_xyz(xyz)
 
 
-def latlon_periodic_features(lat_deg: torch.Tensor, lon_deg: torch.Tensor) -> torch.Tensor:
+def latlon_periodic_features(
+    lat_deg: torch.Tensor, lon_deg: torch.Tensor
+) -> torch.Tensor:
     """Return periodic latitude/longitude node features.
 
     Features are ``[sin(lat), cos(lat), sin(lon), cos(lon)]``. Longitude is
@@ -50,9 +56,11 @@ def latlon_periodic_features(lat_deg: torch.Tensor, lon_deg: torch.Tensor) -> to
     """
 
     lat = torch.as_tensor(lat_deg, dtype=torch.float32).reshape(-1)
-    lon = (torch.as_tensor(lon_deg, dtype=torch.float32).reshape(-1) % 360.0)
+    lon = torch.as_tensor(lon_deg, dtype=torch.float32).reshape(-1) % 360.0
     if lat.shape != lon.shape:
-        raise ValueError(f"lat and lon must have the same shape, got {lat.shape} and {lon.shape}.")
+        raise ValueError(
+            f"lat and lon must have the same shape, got {lat.shape} and {lon.shape}."
+        )
     lat_rad = torch.deg2rad(lat)
     lon_rad = torch.deg2rad(lon)
     return torch.stack(
@@ -120,7 +128,9 @@ def compute_edge_features(
     if sender_idx.shape != receiver_idx.shape:
         raise ValueError("sender and receiver must have the same shape.")
     if sender_idx.ndim != 1:
-        raise ValueError("sender and receiver must be one-dimensional edge index tensors.")
+        raise ValueError(
+            "sender and receiver must be one-dimensional edge index tensors."
+        )
 
     if sender_idx.numel() == 0:
         return torch.empty((0, 12), dtype=torch.float32)
@@ -142,10 +152,14 @@ def compute_edge_features(
     )
     chord = chord_distance(src, tgt).unsqueeze(-1)
     arc = great_circle_distance(src, tgt).unsqueeze(-1)
-    return torch.cat((local_rel, chord, arc, source_periodic, target_periodic), dim=-1).to(torch.float32)
+    return torch.cat(
+        (local_rel, chord, arc, source_periodic, target_periodic), dim=-1
+    ).to(torch.float32)
 
 
-def local_tangent_basis(xyz: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def local_tangent_basis(
+    xyz: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Return east/north/up unit vectors for unit-sphere points.
 
     The basis is derived from latitude/longitude, so it is tied to the sphere's

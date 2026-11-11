@@ -41,7 +41,9 @@ def build_mesh_adjacency_map(
     )
     face_tensor = torch.as_tensor(faces, dtype=torch.long).detach().cpu()
     if face_tensor.ndim != 2 or face_tensor.shape[1] != 3:
-        raise ValueError(f"faces must have shape [F, 3], got {tuple(face_tensor.shape)}.")
+        raise ValueError(
+            f"faces must have shape [F, 3], got {tuple(face_tensor.shape)}."
+        )
     if face_tensor.numel():
         min_index = int(face_tensor.min().item())
         max_index = int(face_tensor.max().item())
@@ -142,7 +144,9 @@ def build_radius_map(
     pairs: list[tuple[int, int]] = []
     if cKDTree is not None:
         tree = cKDTree(source.xyz.numpy())
-        neighbor_lists = tree.query_ball_point(target.xyz.numpy(), r=float(chord_radius))
+        neighbor_lists = tree.query_ball_point(
+            target.xyz.numpy(), r=float(chord_radius)
+        )
         for target_idx, neighbors in enumerate(neighbor_lists):
             if max_neighbors is not None and len(neighbors) > max_neighbors:
                 src = source.xyz[torch.as_tensor(neighbors, dtype=torch.long)]
@@ -154,7 +158,9 @@ def build_radius_map(
     else:
         dist = torch.cdist(target.xyz, source.xyz)
         for target_idx in range(target.n_nodes):
-            neighbors = torch.nonzero(dist[target_idx] <= chord_radius, as_tuple=False).flatten()
+            neighbors = torch.nonzero(
+                dist[target_idx] <= chord_radius, as_tuple=False
+            ).flatten()
             if max_neighbors is not None and neighbors.numel() > max_neighbors:
                 order = torch.argsort(dist[target_idx, neighbors])[:max_neighbors]
                 neighbors = neighbors[order]
@@ -223,9 +229,13 @@ def build_spherical_delaunay_faces(
     """
 
     if graph.n_nodes < 4:
-        raise ValueError("At least four non-coplanar spherical nodes are required to build faces.")
+        raise ValueError(
+            "At least four non-coplanar spherical nodes are required to build faces."
+        )
     if ConvexHull is None:
-        raise ImportError("build_spherical_delaunay_faces requires scipy.spatial.ConvexHull.")
+        raise ImportError(
+            "build_spherical_delaunay_faces requires scipy.spatial.ConvexHull."
+        )
 
     logger.info(
         "Building spherical Delaunay faces: graph=%s nodes=%d qhull_options=%s",
@@ -235,10 +245,14 @@ def build_spherical_delaunay_faces(
     )
     unique_xyz = torch.unique(graph.xyz, dim=0)
     if unique_xyz.shape[0] != graph.n_nodes:
-        raise ValueError("Spherical Delaunay triangulation requires unique graph.xyz points.")
+        raise ValueError(
+            "Spherical Delaunay triangulation requires unique graph.xyz points."
+        )
 
     try:
-        hull = ConvexHull(graph.xyz.to(torch.float64).numpy(), qhull_options=qhull_options)
+        hull = ConvexHull(
+            graph.xyz.to(torch.float64).numpy(), qhull_options=qhull_options
+        )
     except QhullError as exc:
         raise ValueError(
             "Could not build spherical Delaunay faces from graph.xyz. "
@@ -247,7 +261,9 @@ def build_spherical_delaunay_faces(
 
     faces = torch.as_tensor(hull.simplices, dtype=torch.long)
     if faces.ndim != 2 or faces.shape[1] != 3:
-        raise ValueError(f"ConvexHull did not return triangular faces, got shape {tuple(faces.shape)}.")
+        raise ValueError(
+            f"ConvexHull did not return triangular faces, got shape {tuple(faces.shape)}."
+        )
     if faces.numel():
         min_index = int(faces.min().item())
         max_index = int(faces.max().item())
@@ -318,7 +334,9 @@ def build_barycentric_map(
     )
     faces = torch.as_tensor(source_faces, dtype=torch.long).detach().cpu()
     if faces.ndim != 2 or faces.shape[1] != 3:
-        raise ValueError(f"source_faces must have shape [F, 3], got {tuple(faces.shape)}.")
+        raise ValueError(
+            f"source_faces must have shape [F, 3], got {tuple(faces.shape)}."
+        )
     if faces.shape[0] == 0:
         raise ValueError("source_faces must contain at least one triangular face.")
     if faces.numel():
@@ -347,13 +365,17 @@ def build_barycentric_map(
         selected_vertices, selected_weights = self_selection
         fast_path = "matching_source_target_vertices"
     else:
-        selected_vertices, selected_weights, fallback_count = _select_barycentric_vertices_chunked(
-            source_xyz=source_mesh.xyz,
-            faces=faces,
-            target_xyz=target.xyz,
-            candidate_faces_k=min(int(candidate_faces_k), int(faces.shape[0])),
-            candidate_vertices_k=min(int(candidate_vertices_k), source_mesh.n_nodes),
-            target_chunk_size=int(target_chunk_size),
+        selected_vertices, selected_weights, fallback_count = (
+            _select_barycentric_vertices_chunked(
+                source_xyz=source_mesh.xyz,
+                faces=faces,
+                target_xyz=target.xyz,
+                candidate_faces_k=min(int(candidate_faces_k), int(faces.shape[0])),
+                candidate_vertices_k=min(
+                    int(candidate_vertices_k), source_mesh.n_nodes
+                ),
+                target_chunk_size=int(target_chunk_size),
+            )
         )
 
     sender = selected_vertices.reshape(-1).to(torch.long)
@@ -453,12 +475,16 @@ def _resolve_chord_radius(
                 "auto_radius_graph": auto_radius_graph,
                 "auto_reference_graph_name": reference_graph.name,
                 "auto_reference_max_edge_chord": max_edge_chord,
-                "radius_query_fraction_edge_length": float(radius_query_fraction_edge_length),
+                "radius_query_fraction_edge_length": float(
+                    radius_query_fraction_edge_length
+                ),
             },
         )
 
     if radius_meters is None:
-        raise ValueError("Specify radius, numeric radius_meters, or radius_meters='auto'.")
+        raise ValueError(
+            "Specify radius, numeric radius_meters, or radius_meters='auto'."
+        )
     if radius_meters <= 0.0:
         raise ValueError("radius_meters must be positive.")
     if earth_radius_meters <= 0.0:
@@ -494,7 +520,9 @@ def _max_spherical_delaunay_edge_chord(
             if u != v:
                 undirected_edges.add((min(int(u), int(v)), max(int(u), int(v))))
     if not undirected_edges:
-        raise ValueError("Could not infer a radius from a graph with no Delaunay edges.")
+        raise ValueError(
+            "Could not infer a radius from a graph with no Delaunay edges."
+        )
     edge_tensor = torch.tensor(sorted(undirected_edges), dtype=torch.long)
     distances = torch.linalg.norm(
         graph.xyz[edge_tensor[:, 0]] - graph.xyz[edge_tensor[:, 1]],
@@ -538,7 +566,9 @@ def _build_padded_vertex_to_face_adjacency(
     padded = torch.full((n_vertices, max(1, max_degree)), -1, dtype=torch.long)
     for vertex_idx, face_indices in enumerate(adjacency):
         if face_indices:
-            padded[vertex_idx, : len(face_indices)] = torch.tensor(face_indices, dtype=torch.long)
+            padded[vertex_idx, : len(face_indices)] = torch.tensor(
+                face_indices, dtype=torch.long
+            )
     return padded
 
 
@@ -590,7 +620,9 @@ def _select_barycentric_vertices_chunked(
         chunk_size=target_chunk_size,
     )
     if candidate_vertices_k > 0:
-        vertex_to_faces = _build_padded_vertex_to_face_adjacency(source_xyz.shape[0], faces)
+        vertex_to_faces = _build_padded_vertex_to_face_adjacency(
+            source_xyz.shape[0], faces
+        )
         nearest_vertices = _nearest_point_indices(
             source_xyz,
             target_xyz,
@@ -608,7 +640,9 @@ def _select_barycentric_vertices_chunked(
         stop = min(start + target_chunk_size, target_xyz.shape[0])
         candidate_chunks = [nearest_faces[start:stop]]
         if candidate_vertices_k > 0:
-            incident_faces = vertex_to_faces[nearest_vertices[start:stop]].reshape(stop - start, -1)
+            incident_faces = vertex_to_faces[nearest_vertices[start:stop]].reshape(
+                stop - start, -1
+            )
             candidate_chunks.append(incident_faces)
         candidate_face_indices = torch.cat(candidate_chunks, dim=1)
         vertices, weights, fallback_mask = _choose_barycentric_vertices_for_points(
@@ -621,14 +655,22 @@ def _select_barycentric_vertices_chunked(
         weight_chunks.append(weights)
         fallback_count += int(fallback_mask.sum().item())
 
-    return torch.cat(vertex_chunks, dim=0), torch.cat(weight_chunks, dim=0), fallback_count
+    return (
+        torch.cat(vertex_chunks, dim=0),
+        torch.cat(weight_chunks, dim=0),
+        fallback_count,
+    )
 
 
-def _normalized_face_centers(source_xyz: torch.Tensor, faces: torch.Tensor) -> torch.Tensor:
+def _normalized_face_centers(
+    source_xyz: torch.Tensor, faces: torch.Tensor
+) -> torch.Tensor:
     centers = source_xyz[faces].to(torch.float32).mean(dim=1)
     norm = torch.linalg.norm(centers, dim=-1, keepdim=True)
     if bool(torch.any(norm <= 1.0e-12)):
-        raise ValueError("source_faces contain a degenerate face with near-zero center.")
+        raise ValueError(
+            "source_faces contain a degenerate face with near-zero center."
+        )
     return centers / norm.clamp_min(1.0e-12)
 
 
@@ -659,7 +701,9 @@ def _nearest_point_indices(
     for start in range(0, query_xyz.shape[0], chunk_size):
         stop = min(start + chunk_size, query_xyz.shape[0])
         distances = torch.cdist(query_xyz[start:stop].to(torch.float32), points)
-        chunks.append(torch.topk(distances, k=k, dim=1, largest=False).indices.to(torch.long))
+        chunks.append(
+            torch.topk(distances, k=k, dim=1, largest=False).indices.to(torch.long)
+        )
     return torch.cat(chunks, dim=0)
 
 
@@ -690,7 +734,9 @@ def _planar_barycentric_3d_batch(
     u = 1.0 - v - w
     weights = torch.stack((u, v, w), dim=-1).to(torch.float32)
     reconstruction = torch.sum(weights[..., None] * tri_xyz.to(torch.float32), dim=-2)
-    error = torch.linalg.norm(reconstruction - points[:, None, :].to(torch.float32), dim=-1)
+    error = torch.linalg.norm(
+        reconstruction - points[:, None, :].to(torch.float32), dim=-1
+    )
     finite = torch.isfinite(weights).all(dim=-1) & torch.isfinite(error)
     return weights, error.to(torch.float32), valid & finite
 
@@ -708,13 +754,17 @@ def _choose_barycentric_vertices_for_points(
     if candidate_face_indices.shape[0] != points.shape[0]:
         raise ValueError("candidate_face_indices first dimension must match points.")
     if candidate_face_indices.shape[1] == 0:
-        raise ValueError("candidate_face_indices must contain at least one candidate per point.")
+        raise ValueError(
+            "candidate_face_indices must contain at least one candidate per point."
+        )
 
     valid_candidates = candidate_face_indices >= 0
     safe_face_indices = candidate_face_indices.clamp_min(0)
     face_vertices = faces[safe_face_indices]
     tri_xyz = source_xyz[face_vertices]
-    raw_weights, raw_error, valid_barycentric = _planar_barycentric_3d_batch(points, tri_xyz)
+    raw_weights, raw_error, valid_barycentric = _planar_barycentric_3d_batch(
+        points, tri_xyz
+    )
 
     inside = torch.all(raw_weights >= -inside_tol, dim=-1)
     negative_penalty = torch.relu(-raw_weights).sum(dim=-1)

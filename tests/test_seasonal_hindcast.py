@@ -92,10 +92,7 @@ def test_existing_scoring_parity():
 def test_scoring_pipeline_same_member_case_preservation(tmp_path):
     """Tiny end-to-end archive->DJF->training thresholds->test scores."""
     import json
-    script = Path(__file__).resolve().parents[1]/"scripts/test_set_seasonal_hindcasts.py"
-    spec = importlib.util.spec_from_file_location("frozen_hindcasts", script)
-    runner = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(runner)
+    from monthly_diffusion.experiments import test_set_seasonal_hindcasts as runner
     out = tmp_path/"e3sm"
     (out/"provenance").mkdir(parents=True)
     rows = []

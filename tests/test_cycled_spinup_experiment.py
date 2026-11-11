@@ -1,17 +1,10 @@
 """Paired multi-member cycling stops cleanly and resumes without RNG changes."""
-import importlib.util
-from pathlib import Path
-import sys
 import numpy as np
 import torch
 import xarray as xr
 from test_cycled_initialization import CycleModel
 
-scripts=Path(__file__).resolve().parents[1]/"scripts"
-sys.path.insert(0,str(scripts))
-spec=importlib.util.spec_from_file_location("cycle_experiment",scripts/"experiment_cycled_spinup.py")
-experiment=importlib.util.module_from_spec(spec)
-spec.loader.exec_module(experiment)
+from monthly_diffusion.experiments import experiment_cycled_spinup as experiment
 
 
 def test_paired_switch_off_and_resume(tmp_path,monkeypatch):

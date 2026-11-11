@@ -88,7 +88,9 @@ def make_timesteps(
     return steps.to(device=target_device)
 
 
-def _schedule_value(head, step: torch.Tensor, like: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def _schedule_value(
+    head, step: torch.Tensor, like: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
     timestep = step.expand(like.shape[0])
     return head.schedule(timestep, like)
 
@@ -148,15 +150,12 @@ def _dpmpp2m_update(
     first_difference = (data_prediction - previous_data_prediction) / ratio
     expm1_negative_h = torch.expm1(-h)
     updated = (
-        (sigma_next / sigma) * sample
-        - alpha_next * expm1_negative_h * data_prediction
-    )
+        sigma_next / sigma
+    ) * sample - alpha_next * expm1_negative_h * data_prediction
     if solver_type == "midpoint":
         return updated - 0.5 * alpha_next * expm1_negative_h * first_difference
     if solver_type == "heun":
-        return updated + alpha_next * (
-            expm1_negative_h / h + 1.0
-        ) * first_difference
+        return updated + alpha_next * (expm1_negative_h / h + 1.0) * first_difference
     raise ValueError(f"Unknown DPM-Solver++ solver type: {solver_type!r}")
 
 
@@ -219,7 +218,9 @@ def denoise_paired_with_timesteps(
     """
 
     if timesteps.ndim != 1 or timesteps.numel() < 2:
-        raise ValueError("timesteps must be a one-dimensional grid with at least two entries")
+        raise ValueError(
+            "timesteps must be a one-dimensional grid with at least two entries"
+        )
     if not bool(torch.all(timesteps[:-1] > timesteps[1:])):
         raise ValueError("timesteps must be strictly descending")
     if int(timesteps[0]) != transition.diffusion_steps - 1 or int(timesteps[-1]) != 0:
@@ -272,7 +273,9 @@ def denoise_paired_with_timesteps(
             timestep, atmosphere
         )
         ocean_alpha, ocean_sigma = transition.ocean.schedule(timestep, ocean)
-        atmosphere_data = atmosphere_alpha * atmosphere - atmosphere_sigma * atmosphere_v
+        atmosphere_data = (
+            atmosphere_alpha * atmosphere - atmosphere_sigma * atmosphere_v
+        )
         ocean_data = ocean_alpha * ocean - ocean_sigma * ocean_v
         if index == timesteps.numel() - 1:
             return atmosphere_data, ocean_data

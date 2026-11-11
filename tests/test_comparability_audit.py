@@ -1,14 +1,9 @@
 """Small checks for the new read-only comparison's coastline definition."""
-import importlib.util
-from pathlib import Path
 
 import numpy as np
 
 
-spec = importlib.util.spec_from_file_location("comparability_audit",
-    Path(__file__).parents[1]/"scripts/audit_reanalysis_comparability.py")
-audit = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(audit)
+from monthly_diffusion.experiments import audit_reanalysis_comparability as audit
 
 
 def test_coast_wraps_longitude_not_latitude():

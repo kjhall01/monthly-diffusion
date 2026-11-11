@@ -4,6 +4,7 @@ No regridding, meteorological unit conversion or split selection occurs here.
 Source release attributes/checksums are checked when supplied. The explicit
 constant-CO2 spin-up helper never changes the prescribed source values.
 """
+
 from pathlib import Path
 import hashlib
 import numpy as np
@@ -16,25 +17,40 @@ def open_canonical_state(path, *, expected_attrs=None):
     raw = xr.open_zarr(path, consolidated=True)
     for name, expected in (expected_attrs or {}).items():
         if raw.attrs.get(name) != expected:
-            raise ValueError(f"Source {name} does not match the requested release: {raw.attrs.get(name)!r}")
+            raise ValueError(
+                f"Source {name} does not match the requested release: {raw.attrs.get(name)!r}"
+            )
     if "member" in raw.dims:
         raise ValueError("Select one source member before training")
     fields = raw.rename({"ohc300_700": "ohc700_minus_ohc300"})
     # Wet, ice-free cells are genuine zeros; missing land stays missing.
-    fields = fields.assign(sivol=xr.where(raw.sic > 1.e-6, raw.sic*raw.sit, 0.).where(raw.sic.notnull()).astype("float32"))
-    fields.sivol.attrs = dict(units="m", long_name="Sea-ice equivalent thickness",
-                            derivation="sic * sit; zero on wet ice-free cells; missing on land")
-    names = {component: [v.name for v in mdv1_variables() if v.component == component]
-             for component in ("atmosphere", "ocean")}
+    fields = fields.assign(
+        sivol=xr.where(raw.sic > 1.0e-6, raw.sic * raw.sit, 0.0)
+        .where(raw.sic.notnull())
+        .astype("float32")
+    )
+    fields.sivol.attrs = dict(
+        units="m",
+        long_name="Sea-ice equivalent thickness",
+        derivation="sic * sit; zero on wet ice-free cells; missing on land",
+    )
+    names = {
+        component: [v.name for v in mdv1_variables() if v.component == component]
+        for component in ("atmosphere", "ocean")
+    }
     for component in names:
-        missing = set(names[component])-set(fields.data_vars)
+        missing = set(names[component]) - set(fields.data_vars)
         if missing:
-            raise ValueError(f"Missing canonical {component} variables: {sorted(missing)}")
+            raise ValueError(
+                f"Missing canonical {component} variables: {sorted(missing)}"
+            )
     statics = fields[["phi_s", "lsm"]]
     if "time" in statics.dims:
         # Static fields must really be static, not silently the first dynamic map.
         for name in statics:
-            if "time" in statics[name].dims and not bool((statics[name] == statics[name].isel(time=0)).all().compute()):
+            if "time" in statics[name].dims and not bool(
+                (statics[name] == statics[name].isel(time=0)).all().compute()
+            ):
                 raise ValueError(f"{name} varies with time")
         statics = statics.isel(time=0, drop=True)
     for ds in (fields, statics):
@@ -68,11 +84,20 @@ def hold_first_co2_back_to(co2, start):
     if start >= first:
         raise ValueError("Constant prefix must begin before the first prescribed month")
     dates = np.arange(start, first, dtype="datetime64[M]").astype("datetime64[ns]")
-    prefix = xr.DataArray(np.full(len(dates),float(co2.values[0]),dtype=co2.dtype),dims="time",
-                          coords=dict(time=dates),name="co2")
+    prefix = xr.DataArray(
+        np.full(len(dates), float(co2.values[0]), dtype=co2.dtype),
+        dims="time",
+        coords=dict(time=dates),
+        name="co2",
+    )
     # Derived products may carry auxiliary year/month coordinates. Keep only
     # the time coordinate here, never feed inconsistent coordinates to concat.
-    result = xr.concat([prefix, co2.reset_coords(drop=True)],dim="time")
-    result.attrs.update(co2.attrs, spinup_prefix_start=str(start), spinup_prefix_end=str(dates[-1])[:7],
-                        spinup_prefix_ppm=float(co2.values[0]), spinup_prefix="constant first available CO2 value")
+    result = xr.concat([prefix, co2.reset_coords(drop=True)], dim="time")
+    result.attrs.update(
+        co2.attrs,
+        spinup_prefix_start=str(start),
+        spinup_prefix_end=str(dates[-1])[:7],
+        spinup_prefix_ppm=float(co2.values[0]),
+        spinup_prefix="constant first available CO2 value",
+    )
     return result

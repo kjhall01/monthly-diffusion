@@ -41,7 +41,9 @@ def make_equiangular_grid(
         lat = torch.linspace(lat_min, lat_max, nlat)
         lon = torch.linspace(lon_min, lon_max, nlon)
 
-    lat2d, lon2d = torch.meshgrid(lat.to(torch.float32), lon.to(torch.float32), indexing="ij")
+    lat2d, lon2d = torch.meshgrid(
+        lat.to(torch.float32), lon.to(torch.float32), indexing="ij"
+    )
     flat_lat = lat2d.reshape(-1)
     flat_lon = lon2d.reshape(-1) % 360.0
     xyz = latlon_to_xyz(flat_lat, flat_lon)
@@ -56,7 +58,9 @@ def make_equiangular_grid(
         "lon_index": torch.arange(n_nodes, dtype=torch.long) % int(nlon),
         "centers": bool(centers),
     }
-    return SphericalGraph(name=name, xyz=xyz, lat=flat_lat, lon=flat_lon, metadata=metadata)
+    return SphericalGraph(
+        name=name, xyz=xyz, lat=flat_lat, lon=flat_lon, metadata=metadata
+    )
 
 
 def make_equiangular_grid_from_xarray(
@@ -105,7 +109,9 @@ def make_equiangular_grid_from_xarray(
         "lon_last_input": float(lon[-1].item()),
         "lon_wrapped_to_360": True,
     }
-    return SphericalGraph(name=name, xyz=xyz, lat=flat_lat, lon=flat_lon, metadata=metadata)
+    return SphericalGraph(
+        name=name, xyz=xyz, lat=flat_lat, lon=flat_lon, metadata=metadata
+    )
 
 
 def make_icosphere(
@@ -237,7 +243,9 @@ def _coordinate_to_1d_tensor(coord: Any, label: str) -> torch.Tensor:
     try:
         tensor = torch.tensor(array, dtype=torch.float32).detach().cpu()
     except (TypeError, ValueError) as exc:
-        raise TypeError(f"{label} must contain numeric latitude/longitude values.") from exc
+        raise TypeError(
+            f"{label} must contain numeric latitude/longitude values."
+        ) from exc
     if not torch.isfinite(tensor).all():
         raise ValueError(f"{label} must contain only finite values.")
     return tensor

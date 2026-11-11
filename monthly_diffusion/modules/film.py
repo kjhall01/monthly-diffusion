@@ -1,8 +1,10 @@
 """Factorized spatial/month FiLM and post-SiLU additive CO2 conditioning."""
+
 from dataclasses import dataclass
 import torch
 from torch import nn
 from torch.nn import functional as F
+
 
 class StaticFiLM(nn.Module):
     """P107's spatial FiLM driven only by collocated LSM and topography."""
@@ -126,8 +128,10 @@ class ConditionalPreActivation(nn.Module):
             )
         gamma_static, beta_static = self.static.net(statics).chunk(2, dim=-1)
         gamma_time, beta_time = self.time.affine_terms(month)
-        co2_shift = self.time.co2_shift(co2) if include_co2 else torch.zeros(
-            batch, self.width, device=co2.device, dtype=co2.dtype
+        co2_shift = (
+            self.time.co2_shift(co2)
+            if include_co2
+            else torch.zeros(batch, self.width, device=co2.device, dtype=co2.dtype)
         )
         return ConditioningTerms(
             gamma_static=gamma_static,
@@ -137,7 +141,9 @@ class ConditionalPreActivation(nn.Module):
             co2_shift=co2_shift,
         )
 
-    def apply_terms(self, nodes: torch.Tensor, terms: ConditioningTerms) -> torch.Tensor:
+    def apply_terms(
+        self, nodes: torch.Tensor, terms: ConditioningTerms
+    ) -> torch.Tensor:
         """Apply cached context values to the evolving hidden state."""
 
         if nodes.shape != (
@@ -168,13 +174,14 @@ class ConditionalPreActivation(nn.Module):
         return self.apply_terms(nodes, self.modulation_terms(statics, month, co2))
 
 
-
 # Names expose the broadcasting geometry, without changing the inherited heads.
 NodeChannelFiLM = StaticFiLM
 ChannelFiLM = TimeFiLM
 
+
 class AdditiveCO2(nn.Linear):
     """A learned channel-only CO2 direction, broadcast over all nodes."""
+
     def __init__(self, width):
         super().__init__(1, width, bias=False)
         nn.init.zeros_(self.weight)

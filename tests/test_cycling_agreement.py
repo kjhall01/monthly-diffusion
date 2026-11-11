@@ -1,11 +1,8 @@
 """Practical agreement metrics are not tests for nonsignificant differences."""
-from pathlib import Path
-import sys
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"scripts"))
-from diagnose_isotropic_cycling_sweep import features, differences
+from monthly_diffusion.experiments.diagnose_isotropic_cycling_sweep import features, differences
 
 
 def test_identical_series_and_level_shift():
@@ -50,7 +47,7 @@ def test_pooled_start_seasons_preserve_actual_calendar():
 
 def test_confirmation_pool_keeps_independent_cohort_and_window(tmp_path, monkeypatch):
     import xarray as xr
-    import diagnose_isotropic_cycling_sweep as diagnostic
+    from monthly_diffusion.experiments import diagnose_isotropic_cycling_sweep as diagnostic
     folders=[]
     for label,start in (("january","1800-01-01"),("july","1800-07-01")):
         folder=tmp_path/label/"physical"

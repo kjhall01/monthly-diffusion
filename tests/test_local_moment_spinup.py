@@ -1,6 +1,4 @@
 """Initialization moments, exact history order, mask support and paired restart."""
-from pathlib import Path
-import sys
 from types import SimpleNamespace
 import numpy as np
 import torch
@@ -9,9 +7,8 @@ from monthly_diffusion.forecast import Forecast
 from test_encoded_noise_forecast import NoiseModel
 from test_cycled_initialization import CycleModel
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"scripts"))
-import experiment_local_moment_spinup as experiment
-import experiment_cycled_spinup as previous
+from monthly_diffusion.experiments import experiment_local_moment_spinup as experiment
+from monthly_diffusion.experiments import experiment_cycled_spinup as previous
 
 
 def test_monthly_population_moments_and_constant_cells():

@@ -1,14 +1,12 @@
 """The display must preserve absolute levels, complete years and each member."""
-import importlib.util
 from pathlib import Path
 import numpy as np
 import pytest
 import xarray as xr
 
-script = Path(__file__).parents[1]/"scripts/plot_global_trajectories_comparison.py"
-spec = importlib.util.spec_from_file_location("global_trajectories_comparison", script)
-plotter = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plotter)
+from monthly_diffusion.experiments import plot_global_trajectories_comparison as plotter
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_absolute_units_and_complete_years():
@@ -41,7 +39,7 @@ def test_members_and_arithmetic_ensemble_means_are_all_drawn():
 def test_reversed_view_uses_same_data_and_outlines_main_window(tmp_path):
     import json
     import yaml
-    config = yaml.safe_load((script.parents[1]/"examples/global-trajectories-comparison-recent-focus.yaml").read_text())
+    config = yaml.safe_load((ROOT/"examples/global-trajectories-comparison-recent-focus.yaml").read_text())
     config["data_directory"] = str(tmp_path)
     years = np.arange(1850, 2101)
     for i, name in enumerate(config["sources"]):
@@ -72,7 +70,7 @@ def test_reversed_view_uses_same_data_and_outlines_main_window(tmp_path):
 def test_wide_full_timeline_with_unlabeled_insets_and_outer_boxes(tmp_path, filename):
     import json
     import yaml
-    config = yaml.safe_load((script.parents[1]/"examples"/filename).read_text())
+    config = yaml.safe_load((ROOT/"examples"/filename).read_text())
     config["data_directory"] = str(tmp_path)
     years = np.arange(1850, 2101)
     for i, name in enumerate(config["sources"]):

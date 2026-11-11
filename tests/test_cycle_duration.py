@@ -1,15 +1,12 @@
 """Cycling cutoffs, exact shared prefixes, and resumability without RNG resets."""
-from pathlib import Path
-import sys
 import numpy as np
 import torch
 import xarray as xr
 from test_cycled_initialization import CycleModel
 
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"scripts"))
-import experiment_cycled_spinup as original
-import experiment_local_moment_spinup as local
-import experiment_cycle_duration as duration
+from monthly_diffusion.experiments import experiment_cycled_spinup as original
+from monthly_diffusion.experiments import experiment_local_moment_spinup as local
+from monthly_diffusion.experiments import experiment_cycle_duration as duration
 
 
 def test_duration_cutoffs_common_prefix_and_resume(tmp_path,monkeypatch):

@@ -1,15 +1,10 @@
 """The publication pass must change presentation, not response definitions."""
-import importlib.util
-from pathlib import Path
 import json
 import numpy as np
 import pytest
 import xarray as xr
 
-path = Path(__file__).parents[1]/"scripts/render_publication_forced_response.py"
-spec = importlib.util.spec_from_file_location("publication_response", path)
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+from monthly_diffusion.experiments import render_publication_forced_response as module
 
 
 def make_products(root):

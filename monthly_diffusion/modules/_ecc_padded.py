@@ -45,7 +45,9 @@ class _PaddedInboundStencilCache:
     """Cache padded inbound map stencils by map, device, and floating dtype."""
 
     def __init__(self) -> None:
-        self._cache: dict[tuple[int, torch.device, torch.dtype], _PaddedInboundStencil] = {}
+        self._cache: dict[
+            tuple[int, torch.device, torch.dtype], _PaddedInboundStencil
+        ] = {}
 
     def get(
         self,
@@ -66,7 +68,9 @@ class _PaddedInboundStencilCache:
         n_target = int(graph_map.n_target)
         counts = torch.bincount(receiver, minlength=n_target)
         if counts.numel() != n_target:
-            raise ValueError(f"MDV1 ECC map {graph_map.name!r} has invalid target counts.")
+            raise ValueError(
+                f"MDV1 ECC map {graph_map.name!r} has invalid target counts."
+            )
         degree = int(counts.max())
         order = torch.argsort(receiver)
         sorted_receiver = receiver[order]
@@ -74,7 +78,9 @@ class _PaddedInboundStencilCache:
         slots = torch.arange(sender.numel()) - starts[sorted_receiver]
 
         padded_sender = torch.zeros((n_target, degree), dtype=torch.long)
-        padded_attr = torch.zeros((n_target, degree, edge_attr.shape[-1]), dtype=edge_attr.dtype)
+        padded_attr = torch.zeros(
+            (n_target, degree, edge_attr.shape[-1]), dtype=edge_attr.dtype
+        )
         valid = torch.zeros((n_target, degree, 1), dtype=edge_attr.dtype)
         padded_sender[sorted_receiver, slots] = sender[order]
         padded_attr[sorted_receiver, slots] = edge_attr[order]
@@ -86,7 +92,10 @@ class _PaddedInboundStencilCache:
             # P141's scatter formulation returns an all-zero aggregate for a
             # target with no incoming radius-map sources, then divides by one.
             # Preserve that behavior exactly for sparse grid-to-mesh maps.
-            inverse_degree=counts.clamp_min(1).to(device=device, dtype=dtype).reciprocal().view(1, n_target, 1),
+            inverse_degree=counts.clamp_min(1)
+            .to(device=device, dtype=dtype)
+            .reciprocal()
+            .view(1, n_target, 1),
         )
         self._cache[key] = cached
         return cached
@@ -142,7 +151,9 @@ class PaddedStencilDynamicSphericalConv(nn.Module):
         if channels != self.in_dim or n_source != graph_map.n_source:
             raise ValueError("MDV1 ECC source shape does not match its graph map.")
         if graph_map.edge_set.edge_attr_dim != self.edge_attr_dim:
-            raise ValueError("MDV1 ECC edge attribute dimension does not match its graph map.")
+            raise ValueError(
+                "MDV1 ECC edge attribute dimension does not match its graph map."
+            )
         n_target = graph_map.n_target if target_nodes is None else target_nodes.shape[1]
         if n_target != graph_map.n_target:
             raise ValueError("MDV1 ECC target shape does not match its graph map.")
@@ -155,8 +166,12 @@ class PaddedStencilDynamicSphericalConv(nn.Module):
             if mask.ndim == 3 and mask.shape[-1] == 1:
                 mask = mask[..., 0]
             if mask.shape != (batch, expected):
-                raise ValueError(f"MDV1 ECC masks must have shape {(batch, expected)}, got {tuple(mask.shape)}")
-            return mask.to(device=source_nodes.device, dtype=source_nodes.dtype).clamp(0., 1.)
+                raise ValueError(
+                    f"MDV1 ECC masks must have shape {(batch, expected)}, got {tuple(mask.shape)}"
+                )
+            return mask.to(device=source_nodes.device, dtype=source_nodes.dtype).clamp(
+                0.0, 1.0
+            )
 
         source_mask = node_mask(source_mask, n_source)
         target_mask = node_mask(target_mask, graph_map.n_target)
@@ -175,7 +190,7 @@ class PaddedStencilDynamicSphericalConv(nn.Module):
             if source_mask is None:
                 aggregated = aggregated * stencil.inverse_degree
             else:
-                aggregated = aggregated / edge_weight.sum(dim=2).clamp_min(1.)
+                aggregated = aggregated / edge_weight.sum(dim=2).clamp_min(1.0)
         update = self.out_proj(aggregated)
         if target_mask is not None:
             update = update * target_mask[..., None]

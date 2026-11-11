@@ -2,11 +2,13 @@
 
 No geographic edge features or relative-position bias enter these attention blocks.
 """
+
 from dataclasses import dataclass
 import math
 import torch
 from torch import nn
 from .attention import FeedForward, FiLM
+
 
 @dataclass(frozen=True)
 class LatentDiffusionConfig:
@@ -48,7 +50,9 @@ class DiTBlock(nn.Module):
         self.ffn = FeedForward(width, ffn_ratio)
         self.film = FiLM(width, cond_width)
 
-    def forward(self, x: torch.Tensor, context: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, context: torch.Tensor, cond: torch.Tensor
+    ) -> torch.Tensor:
         h = self.self_norm(x)
         h, _ = self.self_attention(h, h, h, need_weights=False)
         x = x + h
@@ -91,14 +95,18 @@ class SphericalDiT(nn.Module):
             nn.SiLU(),
             nn.Linear(config.width, config.width),
         )
-        self.blocks = nn.ModuleList([
-            DiTBlock(config.width, config.n_heads, config.ffn_ratio, config.width)
-            for _ in range(config.depth)
-        ])
+        self.blocks = nn.ModuleList(
+            [
+                DiTBlock(config.width, config.n_heads, config.ffn_ratio, config.width)
+                for _ in range(config.depth)
+            ]
+        )
         self.output_norm = nn.LayerNorm(config.width)
         self.output_proj = nn.Linear(config.width, config.latent_channels)
 
-        betas = torch.linspace(config.beta_start, config.beta_end, config.diffusion_steps)
+        betas = torch.linspace(
+            config.beta_start, config.beta_end, config.diffusion_steps
+        )
         alpha_bar = torch.cumprod(1.0 - betas, dim=0)
         self.register_buffer("alpha", torch.sqrt(alpha_bar), persistent=False)
         self.register_buffer("sigma", torch.sqrt(1.0 - alpha_bar), persistent=False)
@@ -149,8 +157,12 @@ class SphericalDiT(nn.Module):
         return t
 
     def schedule(self, t, like):
-        alpha = self.alpha.to(device=like.device, dtype=like.dtype)[t].view(like.shape[0], 1, 1)
-        sigma = self.sigma.to(device=like.device, dtype=like.dtype)[t].view(like.shape[0], 1, 1)
+        alpha = self.alpha.to(device=like.device, dtype=like.dtype)[t].view(
+            like.shape[0], 1, 1
+        )
+        sigma = self.sigma.to(device=like.device, dtype=like.dtype)[t].view(
+            like.shape[0], 1, 1
+        )
         return alpha, sigma
 
     def timestep_embedding(self, t, like):
@@ -158,7 +170,9 @@ class SphericalDiT(nn.Module):
         freq = torch.arange(half, device=like.device, dtype=like.dtype)
         freq = torch.exp(-math.log(10_000.0) * freq / max(half - 1, 1))
         phase = t.to(dtype=like.dtype)[:, None] * freq[None, :]
-        return torch.cat((torch.sin(phase), torch.cos(phase)), dim=-1)[:, :self.time_embedding_channels]
+        return torch.cat((torch.sin(phase), torch.cos(phase)), dim=-1)[
+            :, : self.time_embedding_channels
+        ]
 
     def check_latent(self, z, channels, name):
         if z.shape[-2:] != (self.n_latent_tokens, channels):
@@ -171,9 +185,12 @@ class SphericalTransformer(nn.Module):
     Inputs are already embedded [batch,node,width] tensors and a [batch,width]
     conditioning vector. SphericalDiT uses the same DiTBlock building block.
     """
+
     def __init__(self, width, depth=4, n_heads=4, ffn_ratio=1.55):
         super().__init__()
-        self.blocks = nn.ModuleList(DiTBlock(width, n_heads, ffn_ratio, width) for _ in range(depth))
+        self.blocks = nn.ModuleList(
+            DiTBlock(width, n_heads, ffn_ratio, width) for _ in range(depth)
+        )
 
     def forward(self, tokens, context, condition):
         for block in self.blocks:

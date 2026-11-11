@@ -6,6 +6,7 @@ vectors (x at 0N/0E, y at 0N/90E, z at the North Pole).
 Edges, geographic features and pooled statics are rebuilt at the new locations.
 No random draws, learned rotations, or layer-dependent orientations are used.
 """
+
 from __future__ import annotations
 
 import math
@@ -14,9 +15,16 @@ from typing import Literal, Sequence
 
 import torch
 
-from ._geometry.builders import make_equiangular_grid, make_equiangular_grid_from_xarray, make_icosphere, make_fibonacci_sphere
+from ._geometry.builders import (
+    make_equiangular_grid,
+    make_equiangular_grid_from_xarray,
+    make_icosphere,
+    make_fibonacci_sphere,
+)
 from ._geometry.connectivity import (
-    build_barycentric_map, build_mesh_adjacency_map, build_radius_map,
+    build_barycentric_map,
+    build_mesh_adjacency_map,
+    build_radius_map,
 )
 from ._geometry.geometry import xyz_to_latlon
 from ._geometry.graph import SphericalGraph
@@ -25,6 +33,7 @@ from ._geometry.graph import SphericalGraph
 @dataclass
 class MeshHierarchy:
     """Plain dictionaries of fixed graphs, maps, and construction metadata."""
+
     graphs: dict
     maps: dict
     metadata: dict
@@ -37,9 +46,18 @@ ROTATION_CONVENTION = "Earth-fixed active rotation; column xyz: Rz(z) @ Ry(y) @ 
 def rotation_matrix(degrees: Sequence[float] = MESH_ROTATION_DEGREES) -> torch.Tensor:
     """Proper orthogonal matrix, float64 CPU; angles are x, y, z in degrees."""
     if len(degrees) != 3 or not all(math.isfinite(float(v)) for v in degrees):
-        raise ValueError("mesh_rotation_degrees must contain three finite x/y/z angles.")
+        raise ValueError(
+            "mesh_rotation_degrees must contain three finite x/y/z angles."
+        )
     x, y, z = (math.radians(float(v)) for v in degrees)
-    cx, sx, cy, sy, cz, sz = math.cos(x), math.sin(x), math.cos(y), math.sin(y), math.cos(z), math.sin(z)
+    cx, sx, cy, sy, cz, sz = (
+        math.cos(x),
+        math.sin(x),
+        math.cos(y),
+        math.sin(y),
+        math.cos(z),
+        math.sin(z),
+    )
     rx = torch.tensor([[1, 0, 0], [0, cx, -sx], [0, sx, cx]], dtype=torch.float64)
     ry = torch.tensor([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]], dtype=torch.float64)
     rz = torch.tensor([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]], dtype=torch.float64)
@@ -47,7 +65,9 @@ def rotation_matrix(degrees: Sequence[float] = MESH_ROTATION_DEGREES) -> torch.T
 
 
 def make_rotated_icosphere(
-    level: int, *, name: str | None = None,
+    level: int,
+    *,
+    name: str | None = None,
     rotation_degrees: Sequence[float] = MESH_ROTATION_DEGREES,
 ) -> tuple[SphericalGraph, torch.Tensor]:
     """Rigidly rotate MDV1's mesh, preserving face indices and nested vertices."""
@@ -56,15 +76,24 @@ def make_rotated_icosphere(
     xyz = (original.xyz.to(torch.float64) @ matrix.T).to(torch.float32)
     lat, lon = xyz_to_latlon(xyz)
     return SphericalGraph(
-        name=original.name, xyz=xyz, lat=lat, lon=lon,
-        metadata={**original.metadata, "rotation_degrees": list(rotation_degrees),
-                  "rotation_convention": ROTATION_CONVENTION,
-                  "rotation_matrix": matrix.tolist()},
+        name=original.name,
+        xyz=xyz,
+        lat=lat,
+        lon=lon,
+        metadata={
+            **original.metadata,
+            "rotation_degrees": list(rotation_degrees),
+            "rotation_convention": ROTATION_CONVENTION,
+            "rotation_matrix": matrix.tolist(),
+        },
     ), faces
 
 
 def build_mesh_hierarchy_context(
-    *, nlat: int, nlon: int, mesh_levels: Sequence[int],
+    *,
+    nlat: int,
+    nlon: int,
+    mesh_levels: Sequence[int],
     grid_to_mesh_radius: float | None = None,
     grid_to_mesh_radius_meters: float | Literal["auto"] | None = "auto",
     down_radius: float | None = None,
@@ -95,7 +124,9 @@ def build_mesh_hierarchy_context(
     faces_by_level = []
     for index, level in enumerate(level_values):
         mesh, faces = make_rotated_icosphere(
-            level, name=f"mesh_l{index}", rotation_degrees=rotation_degrees,
+            level,
+            name=f"mesh_l{index}",
+            rotation_degrees=rotation_degrees,
         )
         meshes.append(mesh)
         faces_by_level.append(faces)
@@ -105,34 +136,63 @@ def build_mesh_hierarchy_context(
         mesh_name = f"mesh_l{index}"
         graphs[mesh_name] = mesh
         maps[f"{mesh_name}_to_{mesh_name}"] = build_mesh_adjacency_map(
-            mesh, faces_by_level[index], name=f"{mesh_name}_to_{mesh_name}", bidirectional=True)
+            mesh,
+            faces_by_level[index],
+            name=f"{mesh_name}_to_{mesh_name}",
+            bidirectional=True,
+        )
     maps["grid_to_mesh_l0"] = build_radius_map(
-            grid, meshes[0], radius=grid_to_mesh_radius,
-            radius_meters=grid_to_mesh_radius_meters,
-            radius_query_fraction_edge_length=radius_query_fraction_edge_length,
-            auto_radius_graph="target", name="grid_to_mesh_l0",
+        grid,
+        meshes[0],
+        radius=grid_to_mesh_radius,
+        radius_meters=grid_to_mesh_radius_meters,
+        radius_query_fraction_edge_length=radius_query_fraction_edge_length,
+        auto_radius_graph="target",
+        name="grid_to_mesh_l0",
     )
-    maps["mesh_l0_to_grid"] = build_barycentric_map(meshes[0], faces_by_level[0], grid, name="mesh_l0_to_grid")
+    maps["mesh_l0_to_grid"] = build_barycentric_map(
+        meshes[0], faces_by_level[0], grid, name="mesh_l0_to_grid"
+    )
     for index in range(len(meshes) - 1):
         fine_name, coarse_name = f"mesh_l{index}", f"mesh_l{index + 1}"
         fine, coarse = meshes[index], meshes[index + 1]
         maps[f"{fine_name}_to_{coarse_name}"] = build_radius_map(
-            fine, coarse, radius=down_radius, radius_meters=down_radius_meters,
+            fine,
+            coarse,
+            radius=down_radius,
+            radius_meters=down_radius_meters,
             radius_query_fraction_edge_length=radius_query_fraction_edge_length,
-            auto_radius_graph="target", name=f"{fine_name}_to_{coarse_name}")
+            auto_radius_graph="target",
+            name=f"{fine_name}_to_{coarse_name}",
+        )
         maps[f"{coarse_name}_to_{fine_name}"] = build_barycentric_map(
-            coarse, faces_by_level[index + 1], fine, name=f"{coarse_name}_to_{fine_name}")
+            coarse,
+            faces_by_level[index + 1],
+            fine,
+            name=f"{coarse_name}_to_{fine_name}",
+        )
     for graph_map in maps.values():
-        indegree = torch.bincount(graph_map.edge_set.receiver, minlength=graph_map.n_target)
+        indegree = torch.bincount(
+            graph_map.edge_set.receiver, minlength=graph_map.n_target
+        )
         if (indegree == 0).any():
-            raise ValueError(f"MDV1 rotated map {graph_map.name} has targets without sources.")
+            raise ValueError(
+                f"MDV1 rotated map {graph_map.name} has targets without sources."
+            )
 
-    metadata = dict(mesh_level_names=tuple(f"mesh_l{i}" for i in range(len(meshes))),
-        mesh_levels=tuple(level_values), grid_to_mesh_method="radius", mesh_down_method="radius",
-        mesh_up_method="barycentric", mesh_to_grid_method="barycentric",
+    metadata = dict(
+        mesh_level_names=tuple(f"mesh_l{i}" for i in range(len(meshes))),
+        mesh_levels=tuple(level_values),
+        grid_to_mesh_method="radius",
+        mesh_down_method="radius",
+        mesh_up_method="barycentric",
+        mesh_to_grid_method="barycentric",
         mesh_rotation_degrees=tuple(float(v) for v in rotation_degrees),
-        mesh_rotation_convention=ROTATION_CONVENTION, mesh_rotation_matrix=rotation_matrix(rotation_degrees).tolist())
+        mesh_rotation_convention=ROTATION_CONVENTION,
+        mesh_rotation_matrix=rotation_matrix(rotation_degrees).tolist(),
+    )
     return MeshHierarchy(graphs, maps, metadata)
+
 
 from ._geometry.graph import EdgeSet, SphericalMap
 from ._geometry.geometry import latlon_to_xyz, compute_edge_features
@@ -143,8 +203,9 @@ def spherical_voronoi(graph):
     """Voronoi cells/areas for arbitrary unit-sphere node locations (SciPy)."""
     import numpy as np
     from scipy.spatial import SphericalVoronoi
+
     xyz = graph.xyz.double().numpy()
-    xyz = xyz/np.linalg.norm(xyz, axis=1, keepdims=True)
-    cells = SphericalVoronoi(xyz, radius=1., center=np.zeros(3))
+    xyz = xyz / np.linalg.norm(xyz, axis=1, keepdims=True)
+    cells = SphericalVoronoi(xyz, radius=1.0, center=np.zeros(3))
     cells.sort_vertices_of_regions()
     return cells

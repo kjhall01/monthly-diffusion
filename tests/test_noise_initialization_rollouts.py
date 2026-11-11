@@ -1,18 +1,11 @@
 """The initialization comparison must pair innovations and preserve history order."""
-import importlib.util
-from pathlib import Path
-import sys
 
 import numpy as np
 import torch
 
 from test_gaussian_forecast import ToyModel
 
-scripts = Path(__file__).parents[1]/"scripts"
-sys.path.insert(0, str(scripts))
-spec = importlib.util.spec_from_file_location("noise_rollouts", scripts/"compare_noise_initialization_rollouts.py")
-audit = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(audit)
+from monthly_diffusion.experiments import compare_noise_initialization_rollouts as audit
 
 
 def test_paired_noise_current_previous_and_exact_resume(tmp_path):
