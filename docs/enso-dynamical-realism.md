@@ -4,7 +4,7 @@ Run from the `umd` repository root:
 
 ```bash
 PYTHONPATH=frozen OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 VECLIB_MAXIMUM_THREADS=4 \
-  python frozen/scripts/diagnose_enso_dynamics.py frozen/examples/enso-dynamics.yaml
+  python frozen/scripts/research/diagnose_enso_dynamics.py frozen/examples/enso-dynamics.yaml
 ```
 
 `--stage calculate` retains numerical products without plots. `--stage plots`
@@ -168,7 +168,7 @@ and previous figures are untouched.
 To extend the event distribution without repeating the lagged-dynamics plots:
 
 ```bash
-PYTHONPATH=frozen python frozen/scripts/diagnose_enso_diversity.py frozen/examples/enso-diversity-historical.yaml
+PYTHONPATH=frozen python frozen/scripts/research/diagnose_enso_diversity.py frozen/examples/enso-diversity-historical.yaml
 ```
 
 This writes `frozen/analysis/enso_diversity_historical_1850_2014/` and includes

@@ -26,8 +26,8 @@ def test_reanalysis_source_uses_same_forcing_not_same_physical_data():
 
 
 def test_launcher_uses_shared_training_entrypoint_and_separate_run():
-    script = (ROOT/"scripts/train_era5_oras5.sh").read_text()
-    assert "examples/train_model.py examples/era5-oras5-local.yaml" in script
+    script = (ROOT/"scripts/recipes/train_era5_oras5.sh").read_text()
+    assert "scripts/legacy/train_model.py examples/era5-oras5-local.yaml" in script
     assert "--config examples/model-era5-oras5.yaml" in script
     assert "--output runs/mdv1-era5-oras5" in script
     assert "--device mps --threads 4 --load-in-memory" in script

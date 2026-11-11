@@ -180,6 +180,10 @@ class MonthlyDiffusionV1:
         if self.autoencoder is None:
             self.prepare(atmos, ocean, co2=co2)
             self.save(progress)
+        if "atmosphere_autoencoder" in self.stages and "autoencoder" not in self.stages:
+            raise ValueError(
+                "Finish the separate AE stages with scripts/train_ocean_autoencoder.py"
+            )
         validate_training_split(self, atmos, ocean, validation, co2)
         if not self.initialization_moments:
             self.fit_stochastic_initialization(atmos, ocean)

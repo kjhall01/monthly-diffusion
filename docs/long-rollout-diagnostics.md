@@ -3,7 +3,7 @@
 From the parent `umd` directory, after activating the environment:
 
 ```bash
-bash frozen/scripts/diagnose_ocean_mask_aware_long_rollout.sh
+bash frozen/scripts/recipes/diagnose_ocean_mask_aware_long_rollout.sh
 ```
 
 This analyzes the existing forecast. It runs no new forecasts. The combined
@@ -102,9 +102,9 @@ directory are not read or reused. No raw rollout files are deleted.
 Stages can also be dispatched explicitly:
 
 ```bash
-bash frozen/scripts/diagnose_ocean_mask_aware_long_rollout.sh --stage physical
-bash frozen/scripts/diagnose_ocean_mask_aware_long_rollout.sh --stage plots
-bash frozen/scripts/diagnose_ocean_mask_aware_long_rollout.sh --stage decoder --device mps
+bash frozen/scripts/recipes/diagnose_ocean_mask_aware_long_rollout.sh --stage physical
+bash frozen/scripts/recipes/diagnose_ocean_mask_aware_long_rollout.sh --stage plots
+bash frozen/scripts/recipes/diagnose_ocean_mask_aware_long_rollout.sh --stage decoder --device mps
 ```
 
 The decoder probe defaults to the package's MPS/CUDA/CPU device choice; an

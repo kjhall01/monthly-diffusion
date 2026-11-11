@@ -31,24 +31,44 @@ python -m pytest
 Python 3.11+, PyTorch, NumPy/SciPy, xarray, cftime, and Zarr 2 are required.
 Cartopy/Matplotlib are optional plotting dependencies. The repository retains its existing [MIT license](LICENSE).
 
+## Main workflow
+
+The top level of `scripts/` contains one sequence:
+
+1. `train_atmosphere_autoencoder.py`
+2. `train_ocean_autoencoder.py`
+3. `train_latent_diffusion.py`
+4. `generate_ae_reconstruction.py`
+5. `generate_ar_rollout.py`
+6. `analyze_ae_reconstruction.py`
+7. `analyze_ar_rollout.py`
+
+Start with:
+
+```bash
+python scripts/train_atmosphere_autoencoder.py --run runs/e3sm --data examples/e3sm.yaml
+```
+
+Then use `--run runs/e3sm` for each later script.
+See the [workflow guide](scripts/README.md) for complete commands, outputs,
+resuming, and shorter-period runs. The default analysis covers 1850–2100, with
+anomalized global time series, reconstruction errors, climatological biases,
+and Robinson maps of the late-minus-early response.
+
+These scripts execute top to bottom with no `main()` wrappers or locally defined
+helpers. Parameters and stage operations are visible in the scripts; reusable
+calculations live in the package. Each AE selects its own best validation epoch.
+The architecture and checkpoint format stay the same; independent selection can
+produce different learned weights from the old paired trainer. Historical
+experiments live in `scripts/research/`, shell launchers in `scripts/recipes/`,
+and the paired trainer in `scripts/legacy/`.
+
+The [code map](docs/code-map.md) gives the reading order and helper locations.
+
 ## Public API
 
-For learning or changing the workflow, start with the scripts:
-
-- [`examples/train_model.py`](examples/train_model.py) shows the parameter values,
-  data split, normalization, AE training, latent caching, and diffusion training
-  in execution order. Edit the Python values directly, or supply `--config` to
-  reproduce an existing YAML recipe. The default parameter values are unchanged.
-- [`examples/forecast.py`](examples/forecast.py) shows initialization, archive
-  resume, spin-up, and the monthly predict/decode/save loop.
-- [`scripts/diagnose_long_rollout.py`](scripts/diagnose_long_rollout.py) shows
-  archive selection, anomaly fitting, index extraction, and the variable loop.
-
-These are executable scripts with no `main()` wrappers or locally defined
-helpers. Import reusable calculations from `monthly_diffusion`, rather than
-importing a script. The [code map](docs/code-map.md) gives the reading order and
-the location of each helper. The convenience API below remains available for
-existing notebooks; the scripts call the individual operations directly.
+The convenience API remains available for notebooks and the historical paired
+training sequence:
 
 ```python
 from monthly_diffusion import MonthlyDiffusionV1
@@ -148,11 +168,11 @@ model.fit_stochastic_initialization(atmos, ocean)  # exact saved training dates 
 model.save('runs/my-run/model-stochastic-init.pt')
 ```
 
-Or, from `frozen/`, use:
+Or, from the repository root, use:
 
 ```bash
-python scripts/prepare_stochastic_initialization.py runs/my-run/model.pt data.yaml --output runs/my-run/model-stochastic-init.pt
-python examples/forecast.py runs/my-run/model-stochastic-init.pt data.yaml --stochastic-start 1850-01 --constant-co2 284.27 --months 120 --output runs/my-run/stochastic --resume
+python scripts/research/prepare_stochastic_initialization.py runs/my-run/model.pt data.yaml --output runs/my-run/model-stochastic-init.pt
+python scripts/legacy/forecast.py runs/my-run/model-stochastic-init.pt data.yaml --stochastic-start 1850-01 --constant-co2 284.27 --months 120 --output runs/my-run/stochastic --resume
 ```
 
 At 1°, the saved monthly local moments add approximately 0.25 GB. Once exported,
@@ -206,7 +226,7 @@ must not be interpreted as mask-aware models.
 ## Data and preprocessing
 
 For the corrected ERA5/ORAS5 retrain, run
-`bash frozen/scripts/train_era5_oras5_sst_support.sh`. Its separate output is
+`bash scripts/recipes/train_era5_oras5_sst_support.sh`. Its separate output is
 `runs/mdv1-era5-oras5-sst-support/`. The only configuration change is
 `ocean_support: sst`: all ocean fields use the fixed training-SST support before
 normalization and loss calculation. Additional missing cells remain missing;
@@ -217,10 +237,10 @@ rollout/diagnostic command. Training and rollout are separate commands; neither
 deletes the previous run.
 
 For the matched, fresh 1° mask-aware ERA5/ORAS5 training run, use
-`bash frozen/scripts/train_era5_oras5.sh` from the parent checkout. See
+`bash scripts/recipes/train_era5_oras5.sh` from this checkout. See
 [era5-oras5-run.md](docs/era5-oras5-run.md) for its pinned data, unchanged model
 settings, train/validation/test periods, resume command and smoke test.
-After training, `bash frozen/scripts/run_era5_oras5_long_rollout.sh` runs the
+After training, `bash scripts/recipes/run_era5_oras5_long_rollout.sh` runs the
 five-member 1850–2100 SSP3-7.0 and constant-CO2 workflows, after discarded
 1845–1849 constant-CO2 spin-up from independent Gaussian latent histories.
 Use `--trajectory-only` when space permits only one archive. The same guide
@@ -300,10 +320,10 @@ Edit the paths in [e3sm.yaml](examples/e3sm.yaml) or
 [era5_oras5.yaml](examples/era5_oras5.yaml), then:
 
 ```bash
-python examples/train_model.py examples/e3sm.yaml --output runs/e3sm
+python scripts/legacy/train_model.py examples/e3sm.yaml --output runs/e3sm
 # After interruption:
-python examples/train_model.py examples/e3sm.yaml --output runs/e3sm --resume
-python examples/forecast.py runs/e3sm/model.pt examples/e3sm.yaml --output runs/e3sm/ssp370 --months 3010 --members 5
+python scripts/legacy/train_model.py examples/e3sm.yaml --output runs/e3sm --resume
+python scripts/legacy/forecast.py runs/e3sm/model.pt examples/e3sm.yaml --output runs/e3sm/ssp370 --months 3010 --members 5
 ```
 
 The example training script uses 1966–2006 for training, 1958–1965 for validation,
@@ -326,14 +346,14 @@ as part of this extraction.
 
 ### Decadal SST variability
 
-From the **parent repository root**, run:
+From the **repository root**, run:
 
 ```bash
-PYTHONPATH=frozen OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 VECLIB_MAXIMUM_THREADS=4 \
-  python frozen/scripts/diagnose_decadal_sst.py frozen/examples/decadal-sst.yaml
+PYTHONPATH=. OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 VECLIB_MAXIMUM_THREADS=4 \
+  python scripts/research/diagnose_decadal_sst.py examples/decadal-sst.yaml
 # Redraw retained results without reopening the monthly archives:
-PYTHONPATH=frozen python frozen/scripts/diagnose_decadal_sst.py \
-  frozen/examples/decadal-sst.yaml --plots-only
+PYTHONPATH=. python scripts/research/diagnose_decadal_sst.py \
+  examples/decadal-sst.yaml --plots-only
 ```
 
 The [configuration](examples/decadal-sst.yaml) specifies the four existing SST
@@ -406,7 +426,7 @@ not rehashed in full. Configuration/source changes require a new output folder.
 
 ## Matching 5-degree run
 
-`examples/e3sm-5deg-local.yaml` and `scripts/train_e3sm_5deg.sh` use the same
+`examples/e3sm-5deg-local.yaml` and `scripts/recipes/train_e3sm_5deg.sh` use the same
 preprocessing, split, seed, optimizer, and staged workflow on the independently
 generated canonical 5-degree E3SMv2 store. Because the 5-degree grid does not
 provide a connected M4 grid-to-mesh stencil, this run uses
@@ -419,13 +439,13 @@ training; the frozen workflow does not create a 5-degree store by reducing the
 1-degree store at runtime.
 
 ```bash
-cd /Users/kyle/Dev/umd/frozen
+cd /Users/kyle/Dev/monthly-diffusion-production
 MD_PYTHON=/Users/kyle/anaconda3/envs/umd/bin/python \
-  /Users/kyle/anaconda3/envs/umd/bin/python scripts/validate_sources.py \
+  /Users/kyle/anaconda3/envs/umd/bin/python scripts/research/validate_sources.py \
   examples/e3sm-5deg-local.yaml \
   --state-zarr /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_5deg/e3smv2_monthly_5deg_r1i1p1f1_185001-210012.zarr \
   --co2-netcdf /Users/kyle/Dev/monthly-diffusion-data/data/co2-forcing-v1/products/co2_monthly_e3sm_ssp370_185001-210012.nc \
   --output runs/mdv1-e3smv2-r1i1p1f1-5deg/source-validation.json
 MD_PYTHON=/Users/kyle/anaconda3/envs/umd/bin/python \
-  bash scripts/train_e3sm_5deg.sh
+  bash scripts/recipes/train_e3sm_5deg.sh
 ```

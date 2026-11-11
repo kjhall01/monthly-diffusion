@@ -1,6 +1,6 @@
 """Convenience API for in-memory or streamed forecasts.
 
-For an editable, step-by-step workflow, see examples/forecast.py.
+For an editable, step-by-step workflow, see scripts/generate_ar_rollout.py.
 """
 
 import logging

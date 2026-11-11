@@ -38,7 +38,7 @@ parent repository; source-parity tests are optional, not a runtime dependency.
 
 ## Actual source-data smoke checks
 
-`scripts/validate_sources.py` was run on **January–December 1966** from each pinned
+`scripts/research/validate_sources.py` was run on **January–December 1966** from each pinned
 1° source product. Release attributes and the prescribed CO2 product checksum
 were checked, and all 25 model fields were passed through fit/transform/inverse.
 Records: `validation/source_e3sm.json`, `validation/source_era5_oras5.json`.
@@ -108,8 +108,8 @@ MONTHLY_DIFFUSION_SOURCE_ROOT=/path/to/umd python -m pytest tests/test_source_pa
 To reproduce a canary after installing the standalone package:
 
 ```bash
-python scripts/resource_canary.py --mode autoencoder --output validation/canary_autoencoder.json
-python scripts/resource_canary.py --mode joint --output validation/canary_joint.json
-python scripts/resource_canary.py --mode diffusion --output validation/canary_diffusion.json
-python scripts/resource_canary.py --mode encode --output validation/canary_encode.json
+python scripts/research/resource_canary.py --mode autoencoder --output validation/canary_autoencoder.json
+python scripts/research/resource_canary.py --mode joint --output validation/canary_joint.json
+python scripts/research/resource_canary.py --mode diffusion --output validation/canary_diffusion.json
+python scripts/research/resource_canary.py --mode encode --output validation/canary_encode.json
 ```

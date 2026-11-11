@@ -4,7 +4,7 @@ Use standard-normal *input fields*, encode them, cycle only during an initial
 finite interval, then use the unmodified latent transition. Real-data controls
 use multiple calendar-matched validation histories, not one chosen ENSO phase.
 Only latent trajectories/restarts are archived; finalists can be decoded later.
-Run from frozen/: python scripts/experiment_isotropic_cycling_sweep.py
+Run from the repository root: python scripts/research/experiment_isotropic_cycling_sweep.py
 """
 
 from pathlib import Path

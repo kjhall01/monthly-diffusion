@@ -72,7 +72,7 @@ def test_new_run_only_changes_support_and_keeps_legacy_config_identity():
     assert "ocean_support" not in old.to_dict()
     with pytest.raises(ValueError,match="ocean_support"):
         ModelConfig(ocean_support="unknown")
-    launcher = (root/"scripts/train_era5_oras5_sst_support.sh").read_text()
+    launcher = (root/"scripts/recipes/train_era5_oras5_sst_support.sh").read_text()
     assert "runs/mdv1-era5-oras5-sst-support" in launcher
     assert "--device mps --threads 4 --load-in-memory" in launcher
 

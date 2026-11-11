@@ -7,7 +7,7 @@ name = "monthly-diffusion"
 version = "1.0.0.dev0"
 description = "Readable spherical autoencoders and coupled monthly latent diffusion"
 requires-python = ">=3.11"
-dependencies = ["numpy", "scipy", "torch>=2.2", "xarray", "cftime", "pyyaml", "zarr>=2.16,<3", "numcodecs", "dask[array]", "pandas"]
+dependencies = ["numpy", "scipy", "torch>=2.2", "xarray", "cftime", "pyyaml", "zarr>=2.16,<3", "numcodecs", "dask[array]", "pandas", "netCDF4"]
 
 [project.optional-dependencies]
 plots = ["matplotlib", "cartopy"]

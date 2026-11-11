@@ -3,7 +3,7 @@
 Run from the repository root:
 
 ```bash
-PYTHONPATH=frozen python frozen/scripts/plot_lagged_enso.py frozen/examples/lagged-enso-e3sm.yaml
+PYTHONPATH=frozen python frozen/scripts/research/plot_lagged_enso.py frozen/examples/lagged-enso-e3sm.yaml
 ```
 
 This reads existing physical monthly forecasts, not a new rollout. The default
@@ -46,7 +46,7 @@ with changed configuration is rejected; completed ensemble maps are reusable.
 To examine another period without overwriting the full-run results:
 
 ```bash
-PYTHONPATH=frozen python frozen/scripts/plot_lagged_enso.py frozen/examples/lagged-enso-e3sm.yaml \
+PYTHONPATH=frozen python frozen/scripts/research/plot_lagged_enso.py frozen/examples/lagged-enso-e3sm.yaml \
   --start-year 1966 --end-year 2006 --output frozen/analysis/lagged_enso_e3sm_training
 ```
 

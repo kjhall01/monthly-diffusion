@@ -78,7 +78,7 @@ def test_reanalysis_configuration_is_matched_and_no_future_truth():
     assert config["index_period"] == config["training"] == [1966,2006]
     assert config["early"] == config["training"]
     assert config["reference_evaluation"][1] == 2025
-    script = (root/"scripts/run_era5_oras5_long_rollout.sh").read_text()
+    script = (root/"scripts/recipes/run_era5_oras5_long_rollout.sh").read_text()
     assert "--months 3012 --members 5" in script
     assert "--gaussian-start 1845-01 --spinup-months 60 --hold-first-co2-back-to 1845-01" in script
     assert config["evaluation"] == [1850,2100]
@@ -94,7 +94,7 @@ def test_bash_workflow_dispatches_both_paths_without_running_inference(tmp_path)
                     "with open(os.environ['MD_LAUNCH_LOG'], 'a') as stream:\n"
                     "    stream.write(json.dumps(sys.argv[1:])+'\\n')\n")
     stub.chmod(0o755)
-    subprocess.run(["bash",str(root/"scripts/run_era5_oras5_long_rollout.sh")],check=True,
+    subprocess.run(["bash",str(root/"scripts/recipes/run_era5_oras5_long_rollout.sh")],check=True,
                    capture_output=True,text=True,
                    env=dict(os.environ,MD_PYTHON=str(stub),MD_LAUNCH_LOG=str(record)))
     calls = [json.loads(line) for line in record.read_text().splitlines()]
@@ -102,7 +102,7 @@ def test_bash_workflow_dispatches_both_paths_without_running_inference(tmp_path)
     calls = calls[1:]
     assert len(calls)==4
     for i in (0,2):
-        assert "examples/forecast.py" in calls[i] and "--resume" in calls[i]
+        assert "scripts/legacy/forecast.py" in calls[i] and "--resume" in calls[i]
         assert calls[i][calls[i].index("--device")+1]=="mps"
     assert "--constant-initial-co2" not in calls[0] and "--constant-initial-co2" in calls[2]
     assert "--skip-decoder" not in calls[1] and "--skip-decoder" in calls[3]

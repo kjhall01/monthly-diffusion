@@ -76,8 +76,8 @@ def validate_fields(ds, names, grid=None):
             raise ValueError(f"{coord} does not match the prepared grid")
 
 
-def validate_units(ds, specifications):
-    """Accept notation aliases, never convert numerical values silently."""
+def normalized_unit_name(units):
+    """Normalize accepted spellings only; do not convert physical values."""
     aliases = {
         "degrees C": "degC",
         "degree_Celsius": "degC",
@@ -85,12 +85,17 @@ def validate_units(ds, specifications):
         "dimensionless": "1",
         "fraction": "1",
     }
+    return aliases.get(units, units).replace("^", "")
+
+
+def validate_units(ds, specifications):
+    """Accept notation aliases, never convert numerical values silently."""
     for spec in specifications:
         if not spec.units:
             continue
         actual = ds[spec.name].attrs.get("units", "")
-        expected = aliases.get(spec.units, spec.units).replace("^", "")
-        normalized = aliases.get(actual, actual).replace("^", "")
+        expected = normalized_unit_name(spec.units)
+        normalized = normalized_unit_name(actual)
         if normalized != expected:
             raise ValueError(
                 f"{spec.name} units {actual!r} differ from expected {spec.units!r}; supply canonical units before training/inference"
@@ -123,6 +128,42 @@ class PhysicalStates(Dataset):
                 np.stack([fields[n].transpose("lat", "lon").values for n in names])
             )
         return result
+
+
+class ComponentStates(Dataset):
+    """One physical component; the other component is never loaded per batch."""
+
+    def __init__(self, fields, component, preprocessor, co2):
+        if component not in ("atmosphere", "ocean"):
+            raise ValueError("component must be atmosphere or ocean")
+        self.fields = fields
+        self.component = component
+        self.preprocessor = preprocessor
+        self.names = [
+            v.name for v in preprocessor.variables if v.component == component
+        ]
+        self.month = month_features(fields.time)
+        forcing = co2_values(co2, fields.time)
+        self.co2 = torch.tensor(
+            ((forcing - preprocessor.co2_mean) / preprocessor.co2_std).values,
+            dtype=torch.float32,
+        )[:, None]
+
+    def __len__(self):
+        return len(self.month)
+
+    def __getitem__(self, index):
+        fields = self.preprocessor.encode(
+            self.fields.isel(time=index), self.component
+        ).compute()
+        state = np.stack(
+            [fields[name].transpose("lat", "lon").values for name in self.names]
+        )
+        return {
+            "state": torch.from_numpy(state),
+            "month": self.month[index],
+            "co2": self.co2[index],
+        }
 
 
 class LatentSequences(Dataset):

@@ -64,7 +64,7 @@ def test_training_and_forecast_scripts_match_api(tiny_data, tmp_path, monkeypatc
         atmosphere, ocean, validation=validation, co2=co2, directory=tmp_path / "api"
     )
     arguments = [
-        str(ROOT / "examples/train_model.py"),
+        str(ROOT / "scripts/legacy/train_model.py"),
         str(source_file),
         "--config",
         str(config_file),
@@ -112,7 +112,7 @@ def test_training_and_forecast_scripts_match_api(tiny_data, tmp_path, monkeypatc
             *initial_states, co2=co2, months=3, members=2, seed=41, **options
         )
         forecast_arguments = [
-            str(ROOT / "examples/forecast.py"),
+            str(ROOT / "scripts/legacy/forecast.py"),
             str(checkpoint),
             str(source_file),
             "--output",

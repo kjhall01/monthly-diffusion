@@ -1,28 +1,30 @@
 # Read and change the emulator
 
-Start with `examples/train_model.py` and `examples/forecast.py`. They run from
-start to finish as ordinary Python scripts. The steps, branches, and loops are
-visible where they execute. Helpers live in the package and can also be used
-from a notebook. The scientific equations and checkpoint formats are unchanged.
+Start with the seven scripts listed in the [workflow guide](../scripts/README.md).
+They run from start to finish as ordinary Python scripts. The steps, branches,
+and loops are visible where they execute. Helpers live in the package and can
+also be used from a notebook.
 
 ## Reading order
 
-1. **Train:** `examples/train_model.py` opens the data, selects the two time
-   periods, prepares normalization, trains the AE, freezes it, caches latents,
-   and trains diffusion. Its Python parameter values are editable. `--config`
-   optionally reads an existing YAML recipe; it does not select the workflow.
-2. **Optimize:** `training/loop.py` contains the epoch and batch loops, validation,
-   checkpoint selection, and early stopping. `training/autoencoder.py` and
-   `training/coupled_training.py` supply their respective objectives.
-3. **Encode and decode:** `model.py` holds the model state and translates between
-   physical xarray datasets and normalized latent tensors. The neural networks
-   themselves are ordinary Torch modules in `modules/` and `components/`.
-4. **Roll out:** `examples/forecast.py` initializes two history months, resumes
-   the archive when requested, advances spin-up, then predicts, decodes, and
-   writes one month at a time. `inference/forecast.py` implements a single step.
-5. **Analyze:** `scripts/diagnose_long_rollout.py` shows the physical diagnostics
-   loop. `examples/diagnose.py` is a smaller example. Reusable scientific
-   calculations are in `analysis/`.
+1. **Train the AEs:** `scripts/train_atmosphere_autoencoder.py` prepares training-only
+   normalization and fits the atmosphere network. `train_ocean_autoencoder.py`
+   fits the ocean network, freezes both selected AEs and creates the latent cache.
+   `ComponentStates` in `data/dataloader.py` loads only the component being trained.
+2. **Train diffusion:** `scripts/train_latent_diffusion.py` validates the frozen
+   cache, builds chronological sequences and trains the coupled transition.
+   `training/loop.py` contains the shared epoch/batch loop, EMA, validation,
+   checkpoint selection, early stopping and interrupted-run resume.
+3. **Encode and decode:** `model.py` translates physical xarray datasets into
+   latent tensors and back. Networks are in `modules/` and `components/`.
+   `scripts/generate_ae_reconstruction.py` reconstructs one reference year at a
+   time, saving physical fields and normalized latents together.
+4. **Roll out:** `scripts/generate_ar_rollout.py` initializes two history months,
+   resumes the archive when requested, advances spin-up, then predicts, decodes
+   and writes one month at a time. `inference/forecast.py` implements a single step.
+5. **Analyze:** `scripts/analyze_ae_reconstruction.py` and `analyze_ar_rollout.py`
+   show the source selection and variable loops. `analysis/trajectory.py` contains
+   the mean/error/response calculations; `trajectory_plots.py` draws the figures.
 
 ## Package layout
 
@@ -48,17 +50,16 @@ Paths in this table are relative to `monthly_diffusion/`.
 | `inference/spinup.py` | Discarded months and optional annual latent blocks |
 | `inference/metadata.py` | Calendar/forcing coverage and forecast identity |
 | `inference/archive.py` | Atomic monthly writes, opening results, exact resume and horizon extension |
+| `inference/reconstruction.py` | Annual reconstruction archive writes, provenance and resume |
 | `inference/rollout.py` | Convenience wrapper for notebook callers, including in-memory output |
 | `checkpoints.py`, `random_state.py`, `devices.py` | Small shared file, RNG and timing helpers |
 | `analysis/` | Climate indices, anomalies, regressions, spectra, maps and plotting |
 | `experiments/` | Helpers for the matching research scripts, named by experiment |
 
-The `scripts/` directory contains executable workflows, including the historical
-initialization experiments. Their functions now live in the matching
-`monthly_diffusion.experiments` module. For example, import `fit_readout` from
-`monthly_diffusion.experiments.diagnose_enso_initialization`. Core training and
-forecasting do not import this research package. The shell launchers still use
-the same script paths and command-line options.
+Specialized experiments live in `scripts/research/`; helpers are in the matching
+`monthly_diffusion.experiments` module. Core training and inference do not import
+that research package. Historical shell launchers live in `scripts/recipes/`
+and use the relocated paths. The former examples remain in `scripts/legacy/`.
 
 ## Compatibility and checks
 
@@ -68,7 +69,12 @@ archives, initialization modes and resume/extend behavior remain supported.
 import paths; new code uses the named modules above. Serialized preprocessing
 and configuration classes retain their original module paths.
 
-`tests/test_script_workflows.py` trains through both the editable script and the
+`tests/test_main_path.py` runs the seven scripts, including interrupted ocean
+cache creation, frozen-weight checks, reconstruction parity and AR resume/extension.
+`tests/test_trajectory_analysis.py` checks known biases, RMSE, seasonal anomalies,
+member variability, responses and plotting.
+
+`tests/test_script_workflows.py` trains through both the legacy paired script and the
 convenience API, compares selected weights and encoded fields exactly, then
 compares forecasts for all four initialization modes, including CLI extension
 and preservation of existing shards. Source opening alone is substituted with
@@ -81,3 +87,8 @@ separate process: deterministic training weights, reconstruction, three forecast
 initializers, archive extension and a real production checkpoint had identical
 numerical fingerprints on CPU. This is a behavior-preservation check, not a new
 assessment of climate skill or accelerator reproducibility.
+
+The separate AE scripts intentionally select each component's best validation
+epoch. They preserve the architecture, loss definitions and checkpoint format,
+but newly trained weights need not match the historical combined-validation
+selection. The legacy paired trainer and convenience API retain that behavior.

@@ -156,14 +156,14 @@ def test_launcher_and_diagnostics_config(tmp_path, diagnostics_only):
     stub.write_text(f'#!{sys.executable}\nimport os,sys,json\n'
                     "with open(os.environ['MD_LAUNCH_LOG'],'a') as f: f.write(json.dumps(sys.argv[1:])+'\\n')\n")
     stub.chmod(0o755)
-    command = ['bash', str(ROOT/'scripts/run_era5_oras5_sst_support_encoded_noise_rollout.sh')]
+    command = ['bash', str(ROOT/'scripts/recipes/run_era5_oras5_sst_support_encoded_noise_rollout.sh')]
     if diagnostics_only:
         command.append('--diagnostics-only')
     subprocess.run(command, check=True, capture_output=True, text=True,
                    env=dict(os.environ, MD_PYTHON=str(stub), MD_LAUNCH_LOG=str(record)))
     calls = [json.loads(s) for s in record.read_text().splitlines()]
     assert len(calls) == (1 if diagnostics_only else 3)
-    assert 'scripts/diagnose_long_rollout.py' in calls[-1]
+    assert 'scripts/research/diagnose_long_rollout.py' in calls[-1]
     if not diagnostics_only:
         forecast = calls[1]
         for option, expected in [('--device', 'mps'), ('--months', '3012'), ('--members', '5'),

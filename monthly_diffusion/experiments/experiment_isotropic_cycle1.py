@@ -5,7 +5,7 @@ stream, and 30-year fixed-CO2 protocol from the saved initialization experiments
 Only the missing isotropic/one-cycle arm is generated. All comparison archives
 are read-only. No moments are fitted, no model trained, and no full fields saved.
 
-Run: python scripts/experiment_isotropic_cycle1.py
+Run: python scripts/research/experiment_isotropic_cycle1.py
 """
 
 from pathlib import Path

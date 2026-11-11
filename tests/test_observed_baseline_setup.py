@@ -33,14 +33,14 @@ def test_baseline_launcher_resumes_mps_forecast_before_diagnostics(tmp_path, dia
                     "with open(os.environ['MD_LAUNCH_LOG'], 'a') as stream:\n"
                     "    stream.write(json.dumps(sys.argv[1:])+'\\n')\n")
     stub.chmod(0o755)
-    command = ["bash", str(ROOT/"scripts/run_era5_oras5_sst_support_observed_rollout.sh")]
+    command = ["bash", str(ROOT/"scripts/recipes/run_era5_oras5_sst_support_observed_rollout.sh")]
     if diagnostics_only:
         command.append("--diagnostics-only")
     subprocess.run(command, check=True, capture_output=True, text=True,
                    env=dict(os.environ, MD_PYTHON=str(stub), MD_LAUNCH_LOG=str(record)))
     calls = [json.loads(line) for line in record.read_text().splitlines()]
     assert len(calls) == (1 if diagnostics_only else 3)
-    assert "scripts/diagnose_long_rollout.py" in calls[-1]
+    assert "scripts/research/diagnose_long_rollout.py" in calls[-1]
     assert "--skip-decoder" in calls[-1]
     if not diagnostics_only:
         assert calls[0][0] == "-"  # Read-only storage preflight.

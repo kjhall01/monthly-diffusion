@@ -5,7 +5,7 @@
 The new, separate run is `runs/mdv1-era5-oras5-sst-support`. Launch from `umd/`:
 
 ```bash
-bash frozen/scripts/train_era5_oras5_sst_support.sh
+bash frozen/scripts/recipes/train_era5_oras5_sst_support.sh
 # After interruption, append --resume.
 ```
 
@@ -27,7 +27,7 @@ latent caches and diffusion weights, not a continuation of the old model.
 After training, the matched rollout/diagnostic workflow is:
 
 ```bash
-bash frozen/scripts/run_era5_oras5_sst_support_long_rollout.sh --trajectory-only
+bash frozen/scripts/recipes/run_era5_oras5_sst_support_long_rollout.sh --trajectory-only
 # Or omit --trajectory-only to include the constant-CO2 control.
 ```
 
@@ -50,10 +50,10 @@ remain in `runs/mdv1-era5-oras5` for comparison.
 For the selected **SST-support** checkpoint, from `umd/` in the `umd` environment:
 
 ```bash
-bash frozen/scripts/run_era5_oras5_sst_support_encoded_noise_rollout.sh
+bash frozen/scripts/recipes/run_era5_oras5_sst_support_encoded_noise_rollout.sh
 # The same command resumes an interrupted spin-up or decoded rollout.
 # To run/resume only the diagnostics:
-bash frozen/scripts/run_era5_oras5_sst_support_encoded_noise_rollout.sh --diagnostics-only
+bash frozen/scripts/recipes/run_era5_oras5_sst_support_encoded_noise_rollout.sh --diagnostics-only
 ```
 
 This does not retrain the model or alter the observed-initialized historical
@@ -101,9 +101,9 @@ allows that assumption to be checked without rerunning inference.
 Inspect the saved spin-up without decoding or running any forecasts:
 
 ```bash
-python frozen/scripts/diagnose_spinup_latents.py
+python frozen/scripts/research/diagnose_spinup_latents.py
 # Extend into the already-saved decoded rollout, without reading physical fields:
-python frozen/scripts/diagnose_spinup_latents.py --through-year 1920
+python frozen/scripts/research/diagnose_spinup_latents.py --through-year 1920
 ```
 
 This writes `spinup_diagnostics/` beside the archive: all-member atmospheric
@@ -151,16 +151,16 @@ were not moved to Trash. Free space immediately afterward was about 130 GiB.
 From the `umd/` checkout, with the `umd` environment active:
 
 ```bash
-bash frozen/scripts/train_era5_oras5.sh
+bash frozen/scripts/recipes/train_era5_oras5.sh
 ```
 
 After an interruption:
 
 ```bash
-bash frozen/scripts/train_era5_oras5.sh --resume
+bash frozen/scripts/recipes/train_era5_oras5.sh --resume
 ```
 
-This uses the same `examples/train_model.py` and `monthly_diffusion` package as
+This uses the same `scripts/legacy/train_model.py` and `monthly_diffusion` package as
 the selected E3SM run, now named `runs/mdv1-e3smv2-r1i1p1f1`. It starts from
 fresh seeded weights, **not** the E3SM checkpoint. Output is
 `frozen/runs/mdv1-era5-oras5/`. It trains both stages, but does not automatically
@@ -233,7 +233,7 @@ transforms, finite masked reconstruction gradients, and the three-step
 diffusion loss/backward pass at the real architecture and batch size:
 
 ```bash
-python frozen/scripts/check_training_setup.py \
+python frozen/scripts/research/check_training_setup.py \
   frozen/examples/era5-oras5-local.yaml \
   --config frozen/examples/model-era5-oras5.yaml \
   --reference-config frozen/runs/mdv1-e3smv2-r1i1p1f1/config.yaml \
@@ -250,10 +250,10 @@ After both training stages finish, run this from the `umd/` checkout with the
 `umd` environment active:
 
 ```bash
-bash frozen/scripts/run_era5_oras5_long_rollout.sh
+bash frozen/scripts/recipes/run_era5_oras5_long_rollout.sh
 # One archive at a time if space is limited:
-bash frozen/scripts/run_era5_oras5_long_rollout.sh --trajectory-only
-bash frozen/scripts/run_era5_oras5_long_rollout.sh --control-only
+bash frozen/scripts/recipes/run_era5_oras5_long_rollout.sh --trajectory-only
+bash frozen/scripts/recipes/run_era5_oras5_long_rollout.sh --control-only
 ```
 
 This runs five-member SSP3-7.0 and constant-initial-CO2 trajectories sequentially,
@@ -306,10 +306,10 @@ archive into RAM.
 For diagnostics alone:
 
 ```bash
-bash frozen/scripts/diagnose_era5_oras5_long_rollout.sh
+bash frozen/scripts/recipes/diagnose_era5_oras5_long_rollout.sh
 # Or only one completed archive:
-bash frozen/scripts/diagnose_era5_oras5_long_rollout.sh --trajectory-only
-bash frozen/scripts/diagnose_era5_oras5_long_rollout.sh --control-only
+bash frozen/scripts/recipes/diagnose_era5_oras5_long_rollout.sh --trajectory-only
+bash frozen/scripts/recipes/diagnose_era5_oras5_long_rollout.sh --control-only
 ```
 
 The editable specification is `examples/diagnostics-era5-oras5.yaml`. It reuses
