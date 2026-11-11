@@ -1,0 +1,18 @@
+{
+  "mode": "encode",
+  "device": "mps",
+  "batch_size": 4,
+  "resolution_degrees": 1,
+  "seconds_per_batch": [
+    0.1554227089509368,
+    0.1522955410182476
+  ],
+  "mean_seconds": 0.1538591249845922,
+  "training_epoch_compute_seconds": 18.92467237310484,
+  "peak_process_rss_bytes": 850542592,
+  "parameters_autoencoder": 3017193,
+  "parameters_transition": 1989040,
+  "notes": "Synthetic float32 compute only. Excludes data I/O, validation, preprocessing and checkpoint writes. macOS peak RSS bytes.",
+  "mps_current_bytes": 178029056,
+  "mps_driver_bytes": 2349891584
+}

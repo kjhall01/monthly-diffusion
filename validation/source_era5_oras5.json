@@ -1,0 +1,156 @@
+{
+  "source": "/Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr",
+  "months": 12,
+  "variables": {
+    "sfcWind": {
+      "std": 0.999817430973053,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 2.0635603945606817e-06,
+      "units": "m s-1"
+    },
+    "t2m": {
+      "std": 0.9995607137680054,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 4.913188774935406e-06,
+      "units": "K"
+    },
+    "tcwv": {
+      "std": 0.9997921586036682,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 6.5321297171294646e-06,
+      "units": "kg m-2"
+    },
+    "mtpr": {
+      "std": 0.9996702075004578,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 9.220306614564355e-11,
+      "units": "kg m-2 s-1"
+    },
+    "mslp": {
+      "std": 0.9996953010559082,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 0.0003020110016223043,
+      "units": "Pa"
+    },
+    "olr": {
+      "std": 0.9997928738594055,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 1.159244112614033e-05,
+      "units": "W m-2"
+    },
+    "z500": {
+      "std": 0.999575138092041,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 0.0005172164383111522,
+      "units": "m2 s-2"
+    },
+    "tau300_700": {
+      "std": 0.9996322989463806,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 0.0003942418989026919,
+      "units": "m2 s-2"
+    },
+    "t850": {
+      "std": 0.9996675252914429,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 2.5572600179657456e-06,
+      "units": "K"
+    },
+    "t500": {
+      "std": 0.9995567798614502,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 1.7801920648707892e-06,
+      "units": "K"
+    },
+    "u200": {
+      "std": 0.9997645616531372,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 3.7853364602824513e-06,
+      "units": "m s-1"
+    },
+    "v200": {
+      "std": 0.9998343586921692,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 3.233662358326228e-06,
+      "units": "m s-1"
+    },
+    "u50": {
+      "std": 0.9997761249542236,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 4.097267435554386e-06,
+      "units": "m s-1"
+    },
+    "ssrd": {
+      "std": 0.9995337128639221,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 0.00012417403809195093,
+      "units": "W m-2"
+    },
+    "tau_x": {
+      "std": 0.9996991157531738,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 1.5112512774528852e-07,
+      "units": "N m-2"
+    },
+    "tau_y": {
+      "std": 0.9996439814567566,
+      "finite_cells": 777600,
+      "max_roundtrip_error": 1.396292499400431e-07,
+      "units": "N m-2"
+    },
+    "sst": {
+      "std": 0.9998864531517029,
+      "finite_cells": 503892,
+      "max_roundtrip_error": 1.1109910555973102e-06,
+      "units": "degC"
+    },
+    "ssh": {
+      "std": 0.999905526638031,
+      "finite_cells": 503892,
+      "max_roundtrip_error": 1.371963729290826e-07,
+      "units": "m"
+    },
+    "sss": {
+      "std": 0.9998025298118591,
+      "finite_cells": 503892,
+      "max_roundtrip_error": 2.700775102226771e-06,
+      "units": "psu"
+    },
+    "mld": {
+      "std": 0.9995468854904175,
+      "finite_cells": 503892,
+      "max_roundtrip_error": 0.00028716368024106487,
+      "units": "m"
+    },
+    "sic": {
+      "std": 0.9999488592147827,
+      "finite_cells": 539028,
+      "max_roundtrip_error": 0.00010000011834619053,
+      "units": "1"
+    },
+    "sivol": {
+      "std": 0.9999619126319885,
+      "finite_cells": 539028,
+      "max_roundtrip_error": 7.138759983149612e-07,
+      "units": "m"
+    },
+    "d20": {
+      "std": 0.9999710321426392,
+      "finite_cells": 208246,
+      "max_roundtrip_error": 0.00010232802060272661,
+      "units": "m"
+    },
+    "ohc300": {
+      "std": 0.999793291091919,
+      "finite_cells": 539028,
+      "max_roundtrip_error": 2076.5544090270996,
+      "units": "J m-2"
+    },
+    "ohc700_minus_ohc300": {
+      "std": 0.9997538924217224,
+      "finite_cells": 539028,
+      "max_roundtrip_error": 1596.2365951538086,
+      "units": "J m-2"
+    }
+  }
+}

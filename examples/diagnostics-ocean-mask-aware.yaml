@@ -1,0 +1,21 @@
+forecast: runs/mdv1-e3smv2-r1i1p1f1-ocean-mask-aware/long_rollout/ssp370_1850_2100_5member
+checkpoint: runs/mdv1-e3smv2-r1i1p1f1-ocean-mask-aware/model.pt
+output: analysis/long_rollout_ocean_mask_aware_epoch176/full_suite
+training_source: /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r1i1p1f1_185001-210012.zarr
+references:
+  - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r2i1p1f1_185001-210012.zarr
+  - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r3i1p1f1_185001-210012.zarr
+  - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r4i1p1f1_185001-210012.zarr
+  - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r5i1p1f1_185001-210012.zarr
+training_member: r1i1p1f1
+co2_netcdf: /Users/kyle/Dev/monthly-diffusion-data/data/co2-forcing-v1/products/co2_monthly_e3sm_ssp370_185001-210012.nc
+co2_sha256: 90f35163269bfa400219e035c561ddc85fb71690dc6d621101b11b4d60eb297d
+# January/February 1850 were initialization states, not generated outputs.
+evaluation: [1851, 2100]
+early: [1851, 1880]
+training: [1966, 2006]
+late: [2070, 2100]
+sample_start_year: 1980
+block_months: 12
+spectrum_segment_months: 600
+variables: [sfcWind, t2m, tcwv, mtpr, mslp, olr, z500, tau300_700, t850, t500, u200, v200, u50, ssrd, tau_x, tau_y, sst, ssh, sss, mld, sic, sivol, d20, ohc300, ohc700_minus_ohc300]

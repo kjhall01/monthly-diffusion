@@ -1,0 +1,54 @@
+# Facing inset/highlight corners, with a compact legend gap.
+output: frozen/analysis/global_trajectories_e3sm_era5/through2100/facing_connectors
+data_directory: frozen/analysis/global_trajectories_e3sm_era5/through2100
+years: [1850, 2100]
+main_years: [1850, 2100]
+main_xticks: [1850, 1900, 1950, 2000, 2050, 2100]
+inset_years: [1958, 2025]
+inset_xticks: [1960, 1980, 2000, 2020]
+figsize: [18.8, 4.2]
+subplot_bottom: 0.25
+legend_y: 0.145
+main_box_aspect: 0.5390831680991624
+inset_bounds:
+  t2m: [0.035, 0.42, 0.69, 0.54]
+  sst: [0.035, 0.42, 0.69, 0.54]
+  mtpr: [0.035, 0.045, 0.66, 0.47]
+inset_clearance: 0.035
+show_style_legend: false
+show_main_axis_label: false
+show_inset_axis_labels: false
+show_inset_tick_labels: false
+show_inset_title: false
+full_frame: true
+outline_main_window: false
+outline_inset_window: true
+connect_inset_corners: true
+inset_connection_style: bottom_to_top
+inset_connection_styles:
+  mtpr: top_to_bottom
+verify_no_inset_overlap: true
+line_style:
+  member_alpha: 0.55
+  member_linewidth: 1.0
+  inset_member_linewidth: 0.85
+  inset_mean_linewidth: 1.8
+training: [1966, 2006]
+variables: [t2m, sst, mtpr]
+sources:
+  e3sm_reference:
+    label: e3smv2
+    color: '#1769AA'
+    linestyle: solid
+  era5_reference:
+    label: era5-oras5
+    color: '#111111'
+    linestyle: solid
+  e3sm_emulator:
+    label: mdv1-e3smv2-r1i1p1f1
+    color: '#009E73'
+    linestyle: solid
+  era5_emulator:
+    label: mdv1-era5-oras5
+    color: '#D55E00'
+    linestyle: solid

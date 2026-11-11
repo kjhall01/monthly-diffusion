@@ -1,0 +1,30 @@
+# All omitted values resolve to the documented MDv1 preset and are persisted.
+ae_width: 102
+latent_channels: 4
+mesh_levels: [4, 3, 2]
+refiners: [6, 6, 4]
+rotation: [17, 23, 11]
+centering: annual_zonal
+transition_width: 132
+transition_depth: 4
+transition_heads: 4
+transition_ffn_ratio: 1.55
+time_embedding_channels: 64
+coupling: jacobi
+cross_gradients: false
+atmosphere_tau: 0.5
+ocean_tau: 6.0
+autoencoder_training:
+  batch_size: 4
+  max_epochs: 1000
+  patience: 5
+  min_delta: 0.0001
+  seed: 20260716
+diffusion_training:
+  batch_size: 4
+  max_epochs: 1000
+  patience: 5
+  min_delta: 0.0001
+  seed: 20260716
+  rollout_steps: 3
+  loss_weight: 0.01

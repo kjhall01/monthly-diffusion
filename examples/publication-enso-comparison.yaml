@@ -1,0 +1,41 @@
+output: frozen/analysis/publication_figures/enso_four_sources_1958_2025
+years: [1958, 2025]
+segment_months: 240
+max_lag_months: 120
+kde_bandwidth_degC: 0.2
+figsize: [17.6, 4.9]
+dpi: 450
+sources:
+  e3sm_reference:
+    label: E3SMv2
+    color: '#1769AA'
+    paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r2i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r3i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r4i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r5i1p1f1_185001-210012.zarr
+    support_paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r1i1p1f1_185001-210012.zarr
+  era5_reference:
+    label: ERA5/ORAS5
+    color: '#111111'
+    paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr
+    support_paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr
+  e3sm_emulator:
+    label: MDv1-E3SMv2
+    color: '#009E73'
+    forecast: true
+    paths:
+      - frozen/runs/mdv1-e3smv2-r1i1p1f1/long_rollout/ssp370_1850_2100_5member
+    support_paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r1i1p1f1_185001-210012.zarr
+  era5_emulator:
+    label: MDv1-ERA5/ORAS5
+    color: '#D55E00'
+    forecast: true
+    paths:
+      - frozen/runs/mdv1-era5-oras5-sst-support/long_rollout/observed_init195802_195803_210012_5member
+    support_paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr

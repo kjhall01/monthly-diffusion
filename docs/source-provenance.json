@@ -1,0 +1,92 @@
+{
+  "parent_git_commit": "4cd1203ffa7f0c454b837b1694583f720d670891",
+  "parent_was_dirty": true,
+  "date": "2026-09-28",
+  "note": "File hashes, not the parent commit alone, identify sources: several selected-run files were untracked. New training is staged, not a reproduction of a historical checkpoint. No runtime imports from these files.",
+  "files": [
+    {
+      "path": "umd/mdv1_e3smv2_r1i1p1f1_frozenae150_dit4_1m_ordered_ocean6/autoencoder.py",
+      "sha256": "0150d92db8c70d24b813669049df7cb7bd286e276c06b888e4e7a41d8d377e78"
+    },
+    {
+      "path": "umd/mdv1_e3smv2_r1i1p1f1_frozenae150_dit4_1m_ordered_ocean6/attention.py",
+      "sha256": "22e79621c62bbc6a8380a31bff3b4a8416867153a8e813e13b38fc672d25aae5"
+    },
+    {
+      "path": "umd/mdv1_e3smv2_r1i1p1f1_frozenae150_dit4_1m_ordered_ocean6/diffusion.py",
+      "sha256": "927a53feea614a610a3cb173ad40f194f76bfd069e52c89bc8d1352092a30fa7"
+    },
+    {
+      "path": "umd/mdv1_e3smv2_r1i1p1f1_frozenae150_dit4_1m_ordered_ocean6/coupled_sampler.py",
+      "sha256": "1853b4da976450ed46fe1ac41e5c1376f9b3021192b01d9ff27d76aed3b25dd3"
+    },
+    {
+      "path": "umd/mdv1_e3smv2_r1i1p1f1_frozenae150_dit4_1m_ordered_ocean6/geometry.py",
+      "sha256": "66893ebad9cbbcb11a271b2d294f26020fa109e8a0fa71291c16cb7f97fe820d"
+    },
+    {
+      "path": "umd/mdv1_e3smv2_r1i1p1f1_frozenae150_dit4_1m_ordered_ocean6/ecc_reference.py",
+      "sha256": "0173371fdf4c9a986adbaa00e995b09fed22c3cc464fb355d1c297c7edb75868"
+    },
+    {
+      "path": "umd/mdv1_e3smv2_r1i1p1f1_frozenae150_dit4_1m_ordered_ocean6/padded_ecc.py",
+      "sha256": "c2c6ea8778bf05b404331656ad6a68f35a9e008d8885bdcfe2e322e41d641810"
+    },
+    {
+      "path": "umd/mdv1_e3smv2_r1i1p1f1_frozenae150_dit4_1m_ordered_ocean6/bucketed_ecc.py",
+      "sha256": "5cbdff0a6c5abb50d682de998bd7ee7d2b694d12666c96e9fb9dcefe1c95ac0b"
+    },
+    {
+      "path": "umd/mdv1_e3smv2_r1i1p1f1_frozenae150_dit4_1m_ordered_ocean6/frozen_training.py",
+      "sha256": "6d9c07b1782dbee08263e06ece4e0ba2cf3673a2d12891a4e7d425b1ba4be8bc"
+    },
+    {
+      "path": "umd/spherical/graph.py",
+      "sha256": "470ee2a26e8d6ed8c4667c8d0b7e399a9224afa934fea24ef7eb93a3f7b44b0f"
+    },
+    {
+      "path": "umd/spherical/geometry.py",
+      "sha256": "75a728eae5d8af3a5b2e617ae305d035961a007d0025487ad3e2a1a8bfacbd2f"
+    },
+    {
+      "path": "umd/spherical/builders.py",
+      "sha256": "02cde01fe7545b5c562008c276980e9a52ffe2d2cfb7234de007a45a9422c306"
+    },
+    {
+      "path": "umd/spherical/connectivity.py",
+      "sha256": "62c2f9c188059aaf6c615140c006dd749852e6a60f2e1ce88b72e1aa5803b85f"
+    },
+    {
+      "path": "umd/spherical/runtime.py",
+      "sha256": "ed7ef24b9f958f681ecd82908456a36ba7093456c48e3f4bae5344f6fd7c03ed"
+    },
+    {
+      "path": "umd/analysis/indices.py",
+      "sha256": "4925278704c58b3964ed8c8ca62a74939228f520cb09fa29b196e1fb7c4060c1"
+    },
+    {
+      "path": "umd/analysis/spatial.py",
+      "sha256": "ad307769f4f759f823d1f6cbae4c4793c336c09b8fdee996f775b6e2c4e416aa"
+    },
+    {
+      "path": "umd/analysis/climatology.py",
+      "sha256": "566f379f3a108a773f1013e0bfc5329567ba33369dbfe7d431566aab699d069b"
+    },
+    {
+      "path": "umd/analysis/eofs.py",
+      "sha256": "edec742105d3d5e847d771db378e0d9b1034f8417b2cacf9bcf03075534a81e2"
+    },
+    {
+      "path": "umd/analysis/helpers.py",
+      "sha256": "c5823440fea2b68234a8c7747d73399984ea34f170e4729200704bc84819f9f3"
+    },
+    {
+      "path": "umd/analysis/index_statistics.py",
+      "sha256": "79d9a4e4a7eeafca1e615dd576a6bccf7d052cccbd93f7ed740ac624d0bff967"
+    },
+    {
+      "path": "umd/analysis/diagnostics.py",
+      "sha256": "e81a961cf7ae3bd75f6f20aee733c83f28494dc3d1bebcba28f95332b910e841"
+    }
+  ]
+}

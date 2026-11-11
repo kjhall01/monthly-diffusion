@@ -1,0 +1,237 @@
+# Fresh retrain: only change is train-fitted SST support for ALL ocean variables.
+# The original model-era5-oras5.yaml and trained run remain unchanged.
+# Matched to the selected mask-aware E3SMv2 run (AE epoch 176 / diffusion epoch 70).
+# Fresh ERA5/ORAS5 training, not a checkpoint transfer. Every setting is explicit.
+variables:
+- name: sfcWind
+  component: atmosphere
+  units: m s^-1
+  transform: softplus_inverse
+  scale: 5.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: t2m
+  component: atmosphere
+  units: K
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: tcwv
+  component: atmosphere
+  units: kg m^-2
+  transform: softplus_inverse
+  scale: 10.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: mtpr
+  component: atmosphere
+  units: kg m^-2 s^-1
+  transform: softplus_inverse
+  scale: 1.0e-05
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: mslp
+  component: atmosphere
+  units: Pa
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: olr
+  component: atmosphere
+  units: W m^-2
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: z500
+  component: atmosphere
+  units: m^2 s^-2
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: tau300_700
+  component: atmosphere
+  units: m^2 s^-2
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: t850
+  component: atmosphere
+  units: K
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: t500
+  component: atmosphere
+  units: K
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: u200
+  component: atmosphere
+  units: m s^-1
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: v200
+  component: atmosphere
+  units: m s^-1
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: u50
+  component: atmosphere
+  units: m s^-1
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: ssrd
+  component: atmosphere
+  units: W m^-2
+  transform: softplus_inverse
+  scale: 100.0
+  eps: 1.0e-06
+  weight: 0.03571428571428571
+- name: tau_x
+  component: atmosphere
+  units: N m^-2
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.05
+- name: tau_y
+  component: atmosphere
+  units: N m^-2
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.05
+- name: sst
+  component: ocean
+  units: degrees C
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.05
+- name: ssh
+  component: ocean
+  units: m
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.05
+- name: sss
+  component: ocean
+  units: psu
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.05
+- name: mld
+  component: ocean
+  units: m
+  transform: softplus_inverse
+  scale: 5.0
+  eps: 1.0e-06
+  weight: 0.05
+- name: sic
+  component: ocean
+  units: dimensionless
+  transform: logit
+  scale: 1.0
+  eps: 0.0001
+  weight: 0.025
+- name: sivol
+  component: ocean
+  units: m
+  transform: softplus_inverse
+  scale: 0.1
+  eps: 1.0e-06
+  weight: 0.025
+- name: d20
+  component: ocean
+  units: m
+  transform: softplus_inverse
+  scale: 50.0
+  eps: 1.0e-06
+  weight: 0.05
+- name: ohc300
+  component: ocean
+  units: J m^-2
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.05
+- name: ohc700_minus_ohc300
+  component: ocean
+  units: J m^-2
+  transform: identity
+  scale: 1.0
+  eps: 1.0e-06
+  weight: 0.05
+centering: annual_zonal
+ae_width: 102
+latent_channels: 4
+mesh_levels:
+- 4
+- 3
+- 2
+refiners:
+- 6
+- 6
+- 4
+rotation:
+- 17
+- 23
+- 11
+transition_width: 132
+transition_depth: 4
+transition_heads: 4
+transition_ffn_ratio: 1.55
+time_embedding_channels: 64
+atmosphere_tau: 0.5
+ocean_tau: 6.0
+coupling: jacobi
+cross_gradients: false
+ocean_mask_aware: true
+ocean_support: sst
+autoencoder_training:
+  batch_size: 4
+  max_epochs: 1000
+  patience: 5
+  min_delta: 0.0001
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer_eps: 1.0e-06
+  ema_decay: 0.995
+  seed: 20260716
+  validation_seeds:
+  - 271828
+  - 314159
+  rollout_steps: 3
+  loss_weight: 0.01
+diffusion_training:
+  batch_size: 4
+  max_epochs: 1000
+  patience: 5
+  min_delta: 0.0001
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer_eps: 1.0e-06
+  ema_decay: 0.995
+  seed: 20260716
+  validation_seeds:
+  - 271828
+  - 314159
+  rollout_steps: 3
+  loss_weight: 0.01
+co2_film_levels: []

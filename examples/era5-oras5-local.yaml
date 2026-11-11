@@ -1,0 +1,14 @@
+# Version-tracked final 1-degree reanalysis, not the old prototype training store.
+state_zarr: /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr
+# Deliberately identical prescribed annual-interpolated pathway to the matched
+# E3SM experiment. No observed seasonal CO2 series is substituted here.
+co2_netcdf: /Users/kyle/Dev/monthly-diffusion-data/data/co2-forcing-v1/products/co2_monthly_e3sm_ssp370_185001-210012.nc
+co2_sha256: 90f35163269bfa400219e035c561ddc85fb71690dc6d621101b11b4d60eb297d
+expected_attrs:
+  member_id: era5_oras5
+  target_grid: regular_latlon_1deg
+  source_lock_sha256: 2988759e86f6e6f0cf188c24f042930182c77dedd5c549abd396814ae1082c21
+  pipeline_git_commit: 50256e032e0826406b72919a0ba2ceb94668e99a
+  product_release_id: monthly-diffusion-data-era5-oras5-1958-2025-v1
+  finalization_pipeline_git_commit: 3ea7024abfcf9b7a34ca71ceb3de1c206bf4051b
+  support_policy_id: monthly-diffusion-conservative-coverage-v2

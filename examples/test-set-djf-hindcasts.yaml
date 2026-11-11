@@ -1,0 +1,37 @@
+# Current frozen-package models, not the retired co-trained epoch195 model.
+# Main verification: complete DJFs 2008-2014 (all months in test 2007-2014).
+# Also save 2007-2014, explicitly flagging December 2006 training overlap.
+# Calibration: identical 1967-2006 winters for target and forecast thresholds;
+# E3SM calibration uses ONLY the training member r1, verification ONLY r2-r5.
+# September/October history -> November-February predictions -> DJF verification.
+# Forecast CO2 = actual October + train-only destination-month increments.
+# RPS/RPSS use fixed historical terciles, and therefore include forced-shift skill.
+output: analysis/test_set_djf_hindcasts
+training_years: [1966, 2006]
+test_years: [2007, 2014]
+forecast_members: 20
+inference_batch_size: 4
+seed: 314159
+co2_netcdf: /Users/kyle/Dev/monthly-diffusion-data/data/co2-forcing-v1/products/co2_monthly_e3sm_ssp370_185001-210012.nc
+co2_sha256: 90f35163269bfa400219e035c561ddc85fb71690dc6d621101b11b4d60eb297d
+experiments:
+  e3sm:
+    label: MDv1-E3SMv2
+    checkpoint: runs/mdv1-e3smv2-r1i1p1f1/model.pt
+    calendar: noleap
+    reference_label: E3SMv2
+    calibration_members: [r1i1p1f1]
+    evaluation_members: [r2i1p1f1, r3i1p1f1, r4i1p1f1, r5i1p1f1]
+    sources:
+      r2i1p1f1: /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r2i1p1f1_185001-210012.zarr
+      r3i1p1f1: /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r3i1p1f1_185001-210012.zarr
+      r4i1p1f1: /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r4i1p1f1_185001-210012.zarr
+      r5i1p1f1: /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r5i1p1f1_185001-210012.zarr
+      r1i1p1f1: /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r1i1p1f1_185001-210012.zarr
+  reanalysis:
+    label: MDv1-ERA5/ORAS5
+    checkpoint: runs/mdv1-era5-oras5-sst-support/model.pt
+    calendar: proleptic_gregorian
+    reference_label: ERA5/ORAS5
+    sources:
+      era5_oras5: /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr

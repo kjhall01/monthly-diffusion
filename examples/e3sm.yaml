@@ -1,0 +1,10 @@
+# Edit only paths to your final monthly-diffusion-data products.
+state_zarr: /path/to/regular_latlon_1deg/e3smv2_monthly_1deg_r1i1p1f1_185001-210012.zarr
+co2_netcdf: /path/to/e3sm_prescribed_pathway_monthly.nc
+co2_sha256: 90f35163269bfa400219e035c561ddc85fb71690dc6d621101b11b4d60eb297d
+expected_attrs:
+  member_id: r1i1p1f1
+  target_grid: regular_latlon_1deg
+  source_lock_sha256: 81a4e963d6282ae7066c65aac00f4b649e865e046b470ad84e5fb3695852555b
+  pipeline_git_commit: e7407f6f5978e5494241eb3ffedd89c58c19f4d7
+  product_release_id: monthly-diffusion-data-e3smv2-production-v1-draft

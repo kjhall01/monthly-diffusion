@@ -1,118 +1,413 @@
-[![DOI](https://zenodo.org/badge/1119807852.svg)](https://doi.org/10.5281/zenodo.21117522)
+# Monthly Diffusion
 
-# Monthly Diffusion: Toward AI Emulation of Future Climates
-####  Kyle Hall (kylehall@umd.edu); Maria Molina
-#### UMD Pareto Group (https://mariajmolina.github.io/) 
-#### A full [Technical Note](https://arxiv.org/abs/2604.13481) describing this work is available on ArXiv
+A standalone, readable implementation of spherical climate autoencoders and
+coupled monthly latent diffusion. This branch contains the standalone production emulator imported from
+`umd/frozen`. It imports no prototypes, has no implicit parent-repository file
+dependencies, and does not download data. The exact imported source hashes are
+recorded in [production-import.json](docs/production-import.json).
 
-Monthly Diffusion v0.9 (MDv0.9-1.5) implements v-prediction [1] type conditional diffusion in the latent space of a conditional variational autoencoder [2, 3, 4, 5]. The architecture of the Encoder/Decoder/Denoiser networks are based on Spherical Fourier Neural Operators [6]. They use spatial conditional RMS norms (akin to FiLM [7] or other conditional normalizations) and low-rank tensor operators (akin to fully-connected linear layers in SHT space) to explicitly allow cross-wavenumber "energy cascades". 
+The `production/emulator-v1` branch contains the model code, training and forecast
+entry points, analysis tools, example configurations, and tests. Trained
+checkpoints and generated data/results are separate local artifacts. The
+`*-local.yaml` examples retain the original workstation paths; edit them for
+your machine or start from `examples/e3sm.yaml` / `examples/era5_oras5.yaml`.
 
-MD1.5 is an initial version of a model architecture which may subsequently be used in Kyle Hall's doctoral dissertation to study internal variability and the response of the earth system to anthropogenic forcings (which were not used for AIMIP). MD1 operates on a monthly-averaged atmospheric state vector derived from ERA5 monthly mean fields (derived = regridded), directly targetting long-timescale modeling and slow climate processes, and dramatically decreasing the computational expense of model training and long autoregressive climate runs. I have been able to run the training code at 1.5 degree nominal horizontal resolution on an Apple M3 with 8GB RAM (but not for long enough to converge). We trained on Derecho A1000 GPUs for the AIMIP run- on a single A1000, it takes about 2 hours wall-clock time for the model to converge. On M3, maybe over the weekend? ~30min/epoch, but that's still unproven. The 46.25 year autoregressive runs are of trivial cost ~ minutes.
+This is a **fresh-training implementation**, not a checkpoint converter. The
+architecture comes from the epoch-150 1° zonal-mean autoencoder and the corrected
+four-block, 1M-per-component, six-month ocean-noise transition. Staged AE-only
+training is new; it does not guarantee the same learned representation or skill
+as the co-trained epoch-150 checkpoint.
 
-### Architecture 
-In our parlance, the encoder parametrizes (under parameters $\theta$) the bayesian posterior distribution $p_\theta(z | x, c)$ where $x$ is the atmospheric state, and $c$ is a conditioning tensor. It is modeled as a multivariate gaussian with a diagonal covariance matrix, with parameters $\mu$ and $\sigma$. A random sample of the posterior is generated with the 'reparametrization trick' $z = \mu + \epsilon * \sigma$ where $\epsilon \in \mathcal{N}(0, 1)$, as in most other VAE architectures. We push $p_\theta$ towards an isotropic multivariate gaussian prior $p(z)$ by implementing the standard Kulback-Liebler Divergence loss term, $D_{kl}(p_\theta | \mathcal{N}(0, 1) )$. The decoder then parametrizes (under parameters $\phi$) the likelihood distribution, $q_\phi(x | z, c)$. The compression ratio of the latent is a hyperparameter to be tuned.
+## Install and test
 
-The denoiser then performs conditional denoising through v-prediction, in order to predict the mean of the latent distribution at time $t+1$, given the state of the latent at time $t$, and the conditions at time $t$, parametrizing under $\gamma$ the distribution $p_\gamma(\mu_{t+1} | z_t, c_t)$.  Anecdotally, this parametrization strikes a balance between overfitting and autoregressive stability. Conditioning on $z_t$ instead of $\mu_t$ effectively 'augments' the training data (which is very necessary, due to the small number of training samples), and targetting $\mu_{t+1}$ instead of $z_{t+1}$ stabilizes the autoregression (again, anecdotally) because then prediction errors (if unbiased) can be interpreted of as small random samples of $p_\theta$  at time $t+1$, which our network is already trained to see. 
-
-Our goal with this conditional VAE architecture is to free the VAE latent space to focus on capturing latent factors unassociated with the conditioning tensor $c$, which is in essence a skip-connection. In the case of the AIMIP protocol runs, that would mean that the latent space should capture variability unassociated with SST conditions, or "atmospheric" modes of variability. These "atmospheric" modes of variability are the true state vector, in that they are the fields that evolve autoregressively (as opposed to being specified by the forcing values). The conditioning tensor $c$ is provided to the denoiser in order to account for potential impacts of the forcing states on the *evolution* of the latent "atmospheric" modes. That being said, we have not yet thoroughly studied the degree to which MD1's latent space is disentangled from the conditioning tensor. We can conclude that it is to some extent disentangled because, as demonstrated by the analysis notebooks, the North Atlantic Oscillation (NAO, a mode of atmospheric variability which is, ostensibly, at least less-coupled to SST than ENSO or PDO are) indices exhibited by MD1 ensemble members diverge with autoregression over time whereas the ENSO indices do not. 
-
-### Training
-We train our encoder/decoder and denoiser jointly, allowing errors from denoising to backpropagate through the encoder in hopes that the encoder will learn a smooth latent manifold which is easy to model for v-prediction. In contrast, most other latent diffusion models are trained in two stages- encoder/decoder first, then diffusion on frozen latents. Our denoiser learns to model latent population parameters - two scalars $\mu$ and $\sigma$ for standardizing the latents before diffusion and un-standardizing them afterwards. As such our loss function has the following terms: 
-
-Symbol | Formula | Name
---- | ----| ----
-$L_1$ | $E\[ (X_t - \hat{X}_t)^2\]$ | Reconstruction MSE 
-$L_2$ | $E\[ (v - \hat{v})^2]$ | $v$-prediction MSE
-$L_3$ | $D_{kl}(p_\theta(z_t \| x_t, c_t) , \mathcal{N}(0, 1) )$ | KL Divergence
-$L_4$ | $(E\[ z_t\] - \mu_{pop})^2]$ | Latent Population Mean MSE 
-$L_5$ | ($E\[ (E\[ z_t\] - z_t)^2 \] - \sigma_{pop})^2$ | Latent Population Std. Dev. MSE 
-
-Our full weighted loss function is then:
-
-$Loss = \lambda_1 L_1 + \lambda_2 L_2 + \lambda_3 ( L_3 + L_4 + L_5)$
-
-Which is minimized by the AdamW optimizer in pytorch with a weight decay of 1e-3 and an initial learning rate of 1e-3. I've been using ~ $\lambda_1 = 1, \lambda_2 = 0.5, \lambda_3 = 5e-3$ but haven't done any systematic hyperparameter tuning.
-
-Here $x$ represents the required AIMIP reporting fields: U/V/T/Q on seven pressure levels (1000, 850, 700, 500, 250, 100, and 50 hPa), Geopotential Height at 500 hPa (Z500) as well as the required 2D variables SKT, T2M, T2D, U10m, V10m, MTPR, PS. We include Mean Sea Level Pressure (MSLP) (for no particular reason). $c$ includes both the physical forcing fields provided by AIMIP (Sea Surface Temp, Sea Ice Concentration, and a Land-Sea Mask), a learned seasonality embedding based on the month of the year. Speculatively, providing this type of $c$ to the encoder / decoder networks this way should allow the latent to focus on capturing variance unassociated with the forcing terms (SST, Ice) and unassociated with a seasonal cycle, effectively targetting weakly-coupled and atmospheric modes of variability such as the North Atlantic Oscillation (NAO). 
-
-# Conceptual Model Run Procedure
-
-1. Encode: $p_\theta(z_t | x_t, c_t) = \mathcal{N}(\mu_t, \sigma_t^2)$
-2. Sample: $z_t = \mu_t + \epsilon * \sigma_t$ where $\epsilon \in \mathcal{N}(0, 1)$
-3. Conditional Denoising using a cosine-beta noise schedule to define $\bar{\alpha}, \alpha, \sigma^2, \beta$ at each of $T$ noise levels indexed by $t$
-   ```
-   n = N(0, 1)
-   for t in 15 ... 1:
-     v = denoiser(n  given {t/15, z_t0, c_t0})
-     eps = sqrt(alpha_bar_t) * v + sqrt( 1 - alpha_bar_t) * n
-
-     mu = 1/sqrt(alpha_t) * ( x - beta_t / torch.sqrt(1 - alpha_bar_t) * eps )
-
-     # add back noise at next noise level
-     if t > 1:
-       n = mu + N(0, 1) * sigma^2
-
-   z_t1 = (mu * z_pop_stddev) + z_pop_mean
-   ```
-
-   vaguely following [8, 9, 10] with the additional help of generative ai (GPT5.1, Github Copilot).
-
-   For autoregression, repeat by swapping $\hat{z_{t+1}}$ in for $z_t$ and $c_{t+1}$ in for $c_t$. (decoding is not necessary for autoregression as time-stepping happens in latent space)
-
-5. Decode: $q_\phi(\hat{x_{t+1}} | \hat{z_{t+1}}, c_{t+1})$ according to forcing value at time $t+1$
-
-It is reasonable to use the forcing at time $t+1$ to condition the decoding of the predicted latent because the atmosphere in theory responds quickly to the state of the ocean. In a higher-frequency model, presumably the atmosphere "sees" the new oceanic forcings on 1 Jan, and responds to them all month long- mostly no longer responding to oceanic forcing from 1-31 Dec. This model is not meant to be a forecast model, but you could run a more true-to-form forecast by forcing the decoding with the climatological mean SST, for example. 
-
-
-# Install
-The commands listed below, in order, should set up the python environment you need to train and run monthly-diffusion models. If you are on NCAR HPC (Derecho) or otherwise using CUDA, substitute `cuda_training_environment.yaml` for `mps_environment.yaml`.  Core dependencies for model training/running are `pytorch torch-harmonics xarray pandas scipy` and for the cmor-ization script additionally `xesmf metpy`. Also whatever GPU backend you wnat to use. 
-
-```
-git clone https://github.com/kjhall01/monthly-diffusion.git
-cd monthly-diffusion
-conda env create -f mps_environment.yaml
-conda activate main
-pip install -e .
+```bash
+git clone --branch production/emulator-v1 https://github.com/kjhall01/monthly-diffusion.git monthly-diffusion-production
+cd monthly-diffusion-production
+python -m pip install -e '.[test,plots]'
+python -m pytest
 ```
 
-# Set Up
-Point the training script to the directory where you have your training data / forcing files / static files. On Glade storage, you can use `/glade/work/khall/ERA5/AIMIP-Data/`, and this should be the default for the library implemented here, but you'll need to edit `scripts/train_conditional_pvae_on_era5.py` to reflect your data location. The files were created on Derecho with the notebooks listed in "monthly-diffusion/data-pipeline" if you want to see that. 
+Python 3.11+, PyTorch, NumPy/SciPy, xarray, cftime, and Zarr 2 are required.
+Cartopy/Matplotlib are optional plotting dependencies. The repository retains its existing [MIT license](LICENSE).
 
-Edit the name of your model (`*.pth` pattern - it is saved as a directory with multiple files) and the model/training hyperparameters in `train_conditional_pvae_on_era5.py` to reflect whatever you want them to, then train the model via: 
+## Public API
 
+```python
+from monthly_diffusion import MonthlyDiffusionV1
+
+# Each component is an xr.Dataset(time, lat, lon) with physical-unit fields.
+# statics is an xr.Dataset(lat, lon) containing phi_s and lsm.
+# co2 is a monthly xr.DataArray(time), in ppm, covering both splits.
+model = MonthlyDiffusionV1(statics=statics, config='examples/model.yaml')
+model.train(
+    train_atmos, train_ocean,
+    validation=(val_atmos, val_ocean), co2=co2,
+    directory='runs/e3sm', resume=False,
+)
+
+za, zo = model.encode(atmos, ocean, co2=co2)
+reconstructed_atmos, reconstructed_ocean = model.decode(za, zo, co2=co2)
+za, absent = model.encode(atmos=atmos, co2=co2)  # absent is None
+
+forecast = model.initialize(history_atmos, history_ocean,
+                            co2=future_co2, members=5, seed=42)
+za_next, zo_next = next(forecast)  # time, member, node, channel
+atmos_next, ocean_next = model.decode(za_next, zo_next, co2=future_co2)
+
+fields = model.rollout(history_atmos, history_ocean, co2=future_co2,
+                       months=120, members=5, seed=42,
+                       path='runs/e3sm/ssp370', resume=True)
+model.save('runs/e3sm/export.pt')
+loaded = MonthlyDiffusionV1.load('runs/e3sm/export.pt')
 ```
-cd scripts
-python train_conditional_pvae_on_era5.py
+
+The wrapper's `.train()` means **fit**; atomic PyTorch modules retain normal
+`.train()`/`.eval()` semantics. Keyword constructor arguments override YAML.
+`model.autoencoder` and `model.transition` expose the ordinary PyTorch modules.
+The default device prefers MPS, then CUDA, then CPU; `device='cpu'` is explicit.
+
+`encode` returns fixed, transition-normalized latents; `decode` reverses that
+normalization. Do not mix raw encoder outputs with the public decoder API.
+Physical inputs are chronological. Initialization uses their **last two adjacent
+months**. Internally all transition histories are **current, previous**; after a
+prediction they become **prediction, old current**, with no skipped months.
+Coupled training/forecasting requires both components. Encoding and decoding may
+omit either component and return `None` for it. The high-level physical API uses
+a regular lat/lon grid; atomic spherical operators can use arbitrary node sets.
+
+A scalar CO2 value means a genuinely constant prescribed pathway. A DataArray
+must cover every requested month. There is no extrapolation, smoothing, invented
+seasonal cycle, CO2 retrieval, or unit conversion inside inference. Calendars are
+preserved, matching CO2 by year/month. Forecasts contain **future months only**,
+not copies of their initialization states.
+
+### Stochastic initialization without observed states
+
+```python
+model = MonthlyDiffusionV1.load('runs/my-run/model.pt')
+forecast = model.initialize(co2=284.27, stochastic_start='1850-01',
+                            members=5, seed=20260716)
+za, zo = next(forecast)  # January 1850 prediction; subsequent months follow normally
+
+# Same initializer, with compressed monthly output and exact resume:
+model.rollout(co2=284.27, stochastic_start='1850-01', months=120,
+              members=5, seed=20260716, path='runs/my-run/stochastic', resume=True)
 ```
 
-This should set your model training. On Derecho, you can verify GPU usage by running the following command in another terminal: 
+This is the **local-moment-matched noise + one-month cycling** initializer:
 
+1. For each variable, history month, and grid cell, draw `mean + std * epsilon`
+   in the checkpoint's already transformed, centered, scaled input space.
+   Moments are fitted on its exact training dates, not validation/future data.
+   Cells with fewer than two finite monthly samples remain unavailable;
+   zero standard deviation remains zero. Ocean support and variable masks apply.
+2. Encode the two preceding months, in **current, previous** order, using
+   checkpoint statics and those months' calendar/CO₂ conditioning.
+3. Predict the first requested month, decode **all** fields, re-encode, and use
+   the resulting latents in the current history slot. Previous history and
+   atmosphere/ocean AR(1) noise are retained, with no RNG reset.
+4. Continue normal latent-only autoregression. There is no continuing physical
+   projection or additional field-noise injection.
+
+The iterator returns each month's **predicted** latents, including the first
+month, exactly as in the cycling experiment. Only its internal first-month
+history is replaced by the re-encoded state. No month is skipped. Optional
+`spinup_months` discards explicitly requested generated months, including that
+first cycled month; saved spin-up latents are the predictions, with the
+post-cycle history preserved in restart states. This is a heuristic initializer,
+not a guarantee of equilibrium or realistic variability in every mode.
+
+Supply **neither** physical component with `stochastic_start`; observed-history
+initialization and the older `gaussian_start` / `encoded_noise_start` options
+are unchanged. A CO₂ trajectory must cover both history months and generated
+months; a scalar, as above, is constant. No backward extrapolation is automatic.
+
+New `.train()` runs save the initialization moments automatically. For older
+checkpoints, fit once and save a **new** export (no neural weights change):
+
+```python
+model.fit_stochastic_initialization(atmos, ocean)  # exact saved training dates selected internally
+model.save('runs/my-run/model-stochastic-init.pt')
 ```
-watch -n0.1 nvidia-smi
+
+Or, from `frozen/`, use:
+
+```bash
+python scripts/prepare_stochastic_initialization.py runs/my-run/model.pt data.yaml --output runs/my-run/model-stochastic-init.pt
+python examples/forecast.py runs/my-run/model-stochastic-init.pt data.yaml --stochastic-start 1850-01 --constant-co2 284.27 --months 120 --output runs/my-run/stochastic --resume
 ```
 
-# Perform AIMIP Runs
-Run a trained model with `scripts/run_aimp_runs.py`. You'll need to update the name of the model to reflect the one you've trained. This script will run a 46.25 autoregressive SST-forced run using ERA5 forcings created for AIMIP (not by me), then It will at 2K to the SST forcing field, do the same, then +4K to the SST field, then do the same. The Results will be saved in `f"scripts/observed_forcings-{model_path[:-4]}"` which includes the name of your model (everythiup other than '.pth').  Forced run results will be in `f"scripts/p2k_forcings-{model_path[:-4]}"` or `f"scripts/p4k_forcings-{model_path[:-4]}"` respectively.
+At 1°, the saved monthly local moments add approximately 0.25 GB. Once exported,
+stochastic inference needs only the model and prescribed CO₂—not the training
+archive or analysis scripts. Rollout provenance records the moment digest,
+training dates, initialization forcing, seed, and one-cycle policy; resume does
+not repeat a completed cycle.
 
-# CMORize and Check Results
-Since AIMIP requires data to be in a CMOR-compliant format, we need to CMOR-ize the model output (regrid to a CMOR-compliant grid, since ours is ... not compliant with much). You can accomplish this with the `scripts/cmorize*.py` scripts. (they are copies with the path names changed so I could run cmorization in parallel as a lazy person). These files rely on templates provided by those hosting the AIMIP data, which can be found on glade storage at `/glade/work/khall/ERA5/AIMIP-Data/templates/*`. 
+## Default experiment
 
-Once CMOR-ization has completed  you can use the `scripts/analyze_cmorized.ipynb` notebook to evaluate your model output in some basic ways (you'll need to change the paths to reflect your model name / current date). You could also directly analyze the model output un-cmorized with some of the other legacy scripts in `scripts`, if you wanted, but I don't really use those anymore and can't guarantee anything. 
+| Item | Setting |
+|---|---|
+| AE hierarchy | 1° grid → M4/2562 → M3/642 → M2/162 |
+| Rotation | fixed Rz(11°) Ry(23°) Rx(17°), both components |
+| AE width / refiners | 102; single-hop 6/6/4 per side |
+| Latents | 162 nodes × 4 channels per component |
+| AE trainable parameters | 3,017,193, both components combined |
+| Transition | four DiT blocks, width 132, four heads, FFN ratio 1.55 |
+| Transition parameters | 994,520 each; 1,989,040 combined |
+| Total trainable parameters | 5,006,233 |
+| Coupling | synchronous noisy-state coupling; no cross-component gradients |
+| Terminal noise | independent AR(1), atmosphere 0.5 months, ocean 6 months |
+| Diffusion target | full next-state v-prediction, not residual diffusion |
+| Rollout objective | three equally weighted steps; loss multiplier 0.01 |
+| Sampler | DPM-Solver++ 2M midpoint; 999, 674, 373, 120, 29, 6, 0 |
 
-# Evaluate Test Set Reconstruction
+Grid→mesh uses degree-bucketed ECC; mesh refiners and up/down paths use padded
+ECC. The radius/barycentric connectivity and learned math are unchanged. Empty
+radius targets raise an error, rather than being silently assigned neighbors.
+Encoder/decoder conditioning is shared **within a component**, not across
+atmosphere/ocean. See [architecture.md](docs/architecture.md) for equations.
 
-You can evaluate test set reconstruction skill with `scripts/evaluate_test_set_skill.py`.
+### Optional mask-aware ocean ECC
 
-# References
-- [1] https://arxiv.org/pdf/2202.00512
-- [2] https://arxiv.org/abs/1906.02691
-- [3] https://arxiv.org/abs/1804.03599
-- [4] https://arxiv.org/abs/1312.6114
-- [5] https://papers.nips.cc/paper_files/paper/2015/hash/8d55a249e6baa5c06772297520da2051-Abstract.html
-- [6] https://arxiv.org/abs/2306.03838
-- [7] https://arxiv.org/abs/1709.07871
-- [8] https://github.com/lucidrains/denoising-diffusion-pytorch/blob/7706bdfc6f527f58d33f84b7b522e61e6e3164b3/denoising_diffusion_pytorch/denoising_diffusion_pytorch.py
-- [9] https://github.com/openai/improved-diffusion/blob/e94489283bb876ac1477d5dd7709bbbd2d9902ce/improved_diffusion/gaussian_diffusion.py
-- [10] https://github.com/CompVis/latent-diffusion/blob/main/ldm/models/diffusion/ddpm.py
-   
+The default is intentionally unchanged: missing ocean inputs are zero-filled at
+the encoder boundary and the ordinary geometric ECC denominator is retained.
+For an ocean-connectivity ablation, set
 
+```yaml
+ocean_mask_aware: true
+```
+
+This preserves the same mesh and learned parameter shapes, but the ocean branch
+uses the train-fitted finite-SST support mask to weight ECC messages (falling
+back to continuous `1 - lsm` support for custom ocean variable sets). Mean
+aggregation is renormalized over supported sources, and unsupported mesh
+targets are gated after each ocean ECC. The atmosphere branch is unaffected.
+This is a retraining ablation; old checkpoints with the default `false` setting
+must not be interpreted as mask-aware models.
+
+## Data and preprocessing
+
+For the corrected ERA5/ORAS5 retrain, run
+`bash frozen/scripts/train_era5_oras5_sst_support.sh`. Its separate output is
+`runs/mdv1-era5-oras5-sst-support/`. The only configuration change is
+`ocean_support: sst`: all ocean fields use the fixed training-SST support before
+normalization and loss calculation. Additional missing cells remain missing;
+decoded output and diagnostic references use the same saved mask. This does not
+change LSM/topography, source products, or existing checkpoints. See the
+[run guide](docs/era5-oras5-run.md#consistent-sst-support-retrain) for its matching
+rollout/diagnostic command. Training and rollout are separate commands; neither
+deletes the previous run.
+
+For the matched, fresh 1° mask-aware ERA5/ORAS5 training run, use
+`bash frozen/scripts/train_era5_oras5.sh` from the parent checkout. See
+[era5-oras5-run.md](docs/era5-oras5-run.md) for its pinned data, unchanged model
+settings, train/validation/test periods, resume command and smoke test.
+After training, `bash frozen/scripts/run_era5_oras5_long_rollout.sh` runs the
+five-member 1850–2100 SSP3-7.0 and constant-CO2 workflows, after discarded
+1845–1849 constant-CO2 spin-up from independent Gaussian latent histories.
+Use `--trajectory-only` when space permits only one archive. The same guide
+documents training-period reanalysis comparisons and model-only future maps.
+
+For the full memory-bounded long-rollout evaluation (held-out references,
+teleconnections, spectra, distributions, ACF, phase locking, global trajectories,
+and decoder gains), see [long-rollout-diagnostics.md](docs/long-rollout-diagnostics.md).
+
+The MDv1 preset explicitly defines 16 atmospheric and nine ocean fields. Units
+come from xarray and must agree with the preset (notation aliases are accepted).
+For a custom variable set, pass `Variable(...)` records; the code does not infer
+physical transforms or loss weights from variable names or arbitrary metadata.
+
+1. SIC: guarded logit, epsilon 1e-4. Positive fields: guarded inverse-softplus
+   with epsilon 1e-6 in scaled units. Others, including OLR and SST: identity.
+2. Subtract one **annual zonal latitude profile**, fitted on training time ×
+   longitude after transforming. No monthly climatology or detrending.
+3. Divide by one pooled population **standard deviation**, not variance, of the
+   residuals. These statistics are unweighted; valid physical zeros count.
+4. Preserve per-variable missing values for reconstruction masks. Only encoder
+   inputs are zero-filled. Default decoded masks are the union of finite training
+   support; they are fixed availability masks, not predictions of missingness.
+5. Normalize raw CO2 with its training mean/std. Topography uses global scalar
+   mean/std; LSM remains a fraction. Static tensor order is `[phi_s, lsm]`.
+
+Inverse-softplus fields/scales: sfcWind 5, TCWV 10, MTPR 1e-5, SSRD 100, MLD 5,
+D20 50, sea-ice equivalent thickness 0.1, in their native physical units. SIC is
+bounded by inverse sigmoid. Physical zero is approximated by the epsilon guard;
+it is not discarded from statistics. `sivol` means **SIC × SIT in metres**, not
+cell-integrated volume. The final-product adapter preserves missing land and
+sets wet ice-free equivalent thickness to zero.
+
+Reconstruction is cosine-latitude weighted MSE over each field's finite cells.
+The 14 core atmospheric variables share weight 0.5; stresses have 0.05 each;
+ocean variables have 0.05 each except SIC/equivalent thickness at 0.025 each.
+Total weight is one. There is no special ice loss.
+
+## Staged training and persistence
+
+1. Fit physical preprocessing using only the supplied training dataset.
+2. Train only the AE with reconstruction, selecting its best EMA validation.
+3. Freeze that AE. Encode training/validation once. Fit fixed, per-channel latent
+   mean/std on **training time × nodes only**, and cache standardized latents.
+4. Train diffusion on the cached sequences. Own sampled-history gradients remain
+   live through the seven-step sampler; cross-component histories/noisy states
+   are detached by default. No diffusion gradients reach the frozen AE.
+
+Each stage uses AdamW (lr 0.001, weight decay 0.0001, epsilon 1e-6), batch 4,
+float32, no clipping, no AMP, no accumulation. EMA decay is 0.995, updated after
+every optimizer step with the inherited warmup. Validation is every epoch and
+uses EMA weights; transition validation replays seeds 271828 and 314159. Best
+absolute validation determines `best.pt`; five stale epochs with min_delta 1e-4
+determine stopping. There is no minimum-epoch rule; the maximum is 1000 by default.
+For coupled diffusion, the gradient objective is multiplied by `loss_weight`
+(0.01), but checkpoint selection and stale-patience use the unscaled
+`val_transition` objective, so `min_delta` is independent of that balancing
+multiplier.
+
+`config.yaml`, `model.pt`, `latents.pt`, stage `latest.pt`/`best.pt`, and separate
+`history.csv` files record settings, preprocessing, statics, selected weights,
+optimizer/EMA/RNG state, and component/horizon losses. Interrupted stages resume;
+completed stages are skipped. Changing an already-completed stage's epoch limit
+does not silently retrain it. Use a fresh run for a new experiment. Checkpoints
+use trusted Python serialization: **do not load untrusted `.pt` files**.
+
+Streaming forecasts write compressed, chunked monthly Zarr shards, each with
+the associated latent/history/AR-noise/RNG state. Completed shards are reused on
+resume; incomplete `.partial` shards are overwritten. A manifest rejects changed
+weights, initial latents, seeds, configuration, or forcing. Read lazily with
+`monthly_diffusion.open_rollout(path)`, not `xr.open_zarr(path)` at the shard root.
+This makes writes/resume explicit and avoids rewriting an entire long trajectory.
+
+## Examples and reusable analysis
+
+Edit the paths in [e3sm.yaml](examples/e3sm.yaml) or
+[era5_oras5.yaml](examples/era5_oras5.yaml), then:
+
+```bash
+python examples/train_model.py examples/e3sm.yaml --output runs/e3sm
+# After interruption:
+python examples/train_model.py examples/e3sm.yaml --output runs/e3sm --resume
+python examples/forecast.py runs/e3sm/model.pt examples/e3sm.yaml --output runs/e3sm/ssp370 --months 3010 --members 5
+```
+
+The example training script uses 1966–2006 for training, 1958–1965 for validation,
+and never passes the 2007–2014 test set to training. Source YAMLs carry release
+locks and the checksum of the existing annual-interpolated CO2 product. They do
+not include data. ERA5 future states are projections, not future observations.
+
+`analysis` provides existing ENSO/PDO/NAO/QBO definitions, area-weighted means,
+complete seasonal/annual means, finite-ensemble-corrected internal variability,
+forced-response maps, standardized-index regression teleconnections, Welch PSD,
+ACF and plotting. Reference PDO loadings must be supplied for model comparisons.
+There are no automatic member, period, regridding, or truth substitutions. If a
+forecast starts in March 1850, 1850 is incomplete: use an explicitly chosen
+complete-year response window (e.g. 1851–1880), or explicitly supply/document
+initialization months rather than silently treating ten months as a full year.
+
+See [the code map](docs/code-map.md), [validation report](docs/validation.md), and
+[source hashes](docs/source-provenance.json). No real training has been launched
+as part of this extraction.
+
+### Decadal SST variability
+
+From the **parent repository root**, run:
+
+```bash
+PYTHONPATH=frozen OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 VECLIB_MAXIMUM_THREADS=4 \
+  python frozen/scripts/diagnose_decadal_sst.py frozen/examples/decadal-sst.yaml
+# Redraw retained results without reopening the monthly archives:
+PYTHONPATH=frozen python frozen/scripts/diagnose_decadal_sst.py \
+  frozen/examples/decadal-sst.yaml --plots-only
+```
+
+The [configuration](examples/decadal-sst.yaml) specifies the four existing SST
+archives, periods, basin boxes, filter, and EOF count. This diagnostic performs
+no model inference and changes no training or forecast products. The reusable
+calculations live in [analysis/decadal.py](monthly_diffusion/analysis/decadal.py).
+
+Definitions and interpretation:
+
+- Equal-month annual means require all 12 months. March-initialized rollout
+  years 1850/1958 are omitted, not padded with observations. Only SST is read,
+  at most one year at a time; small annual caches are reused on subsequent runs.
+- The 1° fields are reduced **for this analysis only** to wet-area-weighted 5°
+  means. All datasets use a common fixed ocean mask: intersect the two
+  training-SST supports and archived decoder supports. Coarse cells must remain
+  finite in every source/year. Retained wet area, including coastal fractions,
+  weights every EOF, projection, and regional summary. Land is never zero SST.
+- Ensemble internal anomalies are `sqrt(N/(N-1)) * (SST - ensemble_mean)` at
+  the exact same time, calculated separately for each ensemble. All five E3SM
+  members are included, including the training member. Member period means are
+  removed, but **not linear trends**; no monthly climatology is subtracted again.
+  The finite-member correction assumes independent realizations and does not
+  make the five-member mean an exact forced response.
+- A normalized 21-point annual Lanczos filter has a nominal 10-year cutoff.
+  Filter each member and analysis interval separately, discard ten years at
+  both ends, and remove each filtered member's remaining constant mean. No
+  reflected endpoints, member concatenation, or borrowing future data into the
+  historical EOF fit. `filter_response.png` shows the finite filter's rolloff;
+  ten years is not a sharp spectral boundary or a ten-year running average.
+- Historical inputs 1851–2014 retain **1861–2004**; future 2015–2100 retains
+  **2025–2090**; matched recent 1959–2025 retains **1969–2015**. The annual and
+  filtered variance denominators use the identical retained years. Historical
+  and future covariance fits are not pooled. Recent results straddle 2015 and
+  are labeled as recent, not purely CMIP-historical.
+- Covariance EOFs use square-root wet-area weighting before SVD, pooled
+  member-years, with **no gridpoint variance standardization**. Global, Pacific
+  (60°S–65°N, 120–280°E), and North Atlantic (0–70°N, 280°E–20°E) are explicit
+  rectangular ocean boxes, not a basin-connectivity atlas. The leading three
+  historical E3SM EOFs form a common basis for every projection. EOF patterns
+  have wet-area RMS one; PCs retain units of °C. Maps show patterns multiplied
+  by a PC standard deviation. PCs are not independently standardized per model.
+- Independent EOFs are also retained. Match the leading three by maximum
+  absolute weighted pattern cosine, one-to-one, allowing rank changes and sign
+  flips. These are descriptive statistical patterns, **not identified physical
+  PDO/AMV modes**. Nearly tied eigenvalues can mix/rotate modes. Comparison
+  against the fixed reference basis and independent fits answers different
+  questions: shared-mode amplitude versus where each model puts its variance.
+- `lowpass_rms_std_degC = sqrt(area_mean(mean_member(var_time(lowpass))))`.
+  The low-pass fraction divides that **variance**, not standard deviation, by
+  the corresponding annual variance. Member PCs and amplitude statistics are
+  saved. Welch spectra use unfiltered annual PCs, 64-year segments or the
+  available interval if shorter, per-member estimates, and constant segment
+  detrending. Spectral member ranges are **not confidence intervals**. Short
+  records and few low-frequency cycles limit interpretation; a smooth PC alone
+  does not prove an oscillation. Free-running trajectories need not align in phase.
+- ORAS5 is a single realization. The observational sensitivity removes a
+  separate gridpoint linear trend from **every** trajectory, reference and
+  emulator alike, without ensemble subtraction or finite-member correction.
+  It is not an exact forced/internal decomposition: nonlinear forced signals
+  can remain, genuine slow variability can be removed, and only 47 years remain
+  after edge trimming. Keep it separate from the internal-ensemble comparison.
+
+Outputs under `analysis/decadal_sst/` include publication PNG/PDF maps, common-PC
+trajectories/spectra, independent EOFs, variance summaries, all annual/anomaly/
+filtered fields and projection products in compressed NetCDF, CSV statistics,
+filter coefficients, masks, exact coverage, configuration, source/checkpoint
+identities, and source-code hashes. Raw archives are untouched. Cached annual
+inputs are validated against source metadata and support; source payloads are
+not rehashed in full. Configuration/source changes require a new output folder.
+
+## Matching 5-degree run
+
+`examples/e3sm-5deg-local.yaml` and `scripts/train_e3sm_5deg.sh` use the same
+preprocessing, split, seed, optimizer, and staged workflow on the independently
+generated canonical 5-degree E3SMv2 store. Because the 5-degree grid does not
+provide a connected M4 grid-to-mesh stencil, this run uses
+`examples/model-5deg.yaml`, which drops only M4 and retains the M3→M2 hierarchy;
+the 1-degree model and `examples/model.yaml` remain unchanged.
+The output directory is `runs/mdv1-e3smv2-r1i1p1f1-5deg-m3m2`.
+
+The source YAML points to the production 5-degree path. Validate it before
+training; the frozen workflow does not create a 5-degree store by reducing the
+1-degree store at runtime.
+
+```bash
+cd /Users/kyle/Dev/umd/frozen
+MD_PYTHON=/Users/kyle/anaconda3/envs/umd/bin/python \
+  /Users/kyle/anaconda3/envs/umd/bin/python scripts/validate_sources.py \
+  examples/e3sm-5deg-local.yaml \
+  --state-zarr /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_5deg/e3smv2_monthly_5deg_r1i1p1f1_185001-210012.zarr \
+  --co2-netcdf /Users/kyle/Dev/monthly-diffusion-data/data/co2-forcing-v1/products/co2_monthly_e3sm_ssp370_185001-210012.nc \
+  --output runs/mdv1-e3smv2-r1i1p1f1-5deg/source-validation.json
+MD_PYTHON=/Users/kyle/anaconda3/envs/umd/bin/python \
+  bash scripts/train_e3sm_5deg.sh
+```

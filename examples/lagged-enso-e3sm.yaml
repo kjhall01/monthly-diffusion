@@ -1,0 +1,12 @@
+# Run from the umd repository root. DJF is labeled by January's year.
+forecast: frozen/runs/mdv1-e3smv2-r1i1p1f1/long_rollout/ssp370_1850_2100_5member
+output: frozen/analysis/lagged_enso_e3sm_ocean_mask_aware
+references:
+  - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r2i1p1f1_185001-210012.zarr
+  - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r3i1p1f1_185001-210012.zarr
+  - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r4i1p1f1_185001-210012.zarr
+  - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r5i1p1f1_185001-210012.zarr
+training_member: r1i1p1f1
+years: [1851, 2100]
+calendar: noleap
+variables: [z500, mtpr]

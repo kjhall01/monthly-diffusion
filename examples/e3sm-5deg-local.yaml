@@ -1,0 +1,15 @@
+# Same frozen MDv1 architecture/settings as e3sm-local.yaml, but the
+# independently generated canonical 5-degree E3SMv2 product.
+state_zarr: /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_5deg/e3smv2_monthly_5deg_r1i1p1f1_185001-210012.zarr
+co2_netcdf: /Users/kyle/Dev/monthly-diffusion-data/data/co2-forcing-v1/products/co2_monthly_e3sm_ssp370_185001-210012.nc
+co2_sha256: 90f35163269bfa400219e035c561ddc85fb71690dc6d621101b11b4d60eb297d
+expected_attrs:
+  member_id: r1i1p1f1
+  target_grid: regular_latlon_5deg
+  pipeline_git_commit: e7407f6f5978e5494241eb3ffedd89c58c19f4d7
+  product_release_id: monthly-diffusion-data-e3smv2-production-v1-draft
+
+# The 5-degree grid does not adequately cover the M4 target stencil.  Use the
+# same frozen architecture below except for dropping M4; the 1-degree model
+# continues to use examples/model.yaml unchanged.
+model_config: examples/model-5deg.yaml

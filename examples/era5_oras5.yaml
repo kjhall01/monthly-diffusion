@@ -1,0 +1,11 @@
+state_zarr: /path/to/era5_oras5_monthly_1deg_195801-202512.zarr
+co2_netcdf: /path/to/e3sm_prescribed_pathway_monthly.nc
+co2_sha256: 90f35163269bfa400219e035c561ddc85fb71690dc6d621101b11b4d60eb297d
+expected_attrs:
+  member_id: era5_oras5
+  target_grid: regular_latlon_1deg
+  source_lock_sha256: 2988759e86f6e6f0cf188c24f042930182c77dedd5c549abd396814ae1082c21
+  pipeline_git_commit: 50256e032e0826406b72919a0ba2ceb94668e99a
+  product_release_id: monthly-diffusion-data-era5-oras5-1958-2025-v1
+  finalization_pipeline_git_commit: 3ea7024abfcf9b7a34ca71ceb3de1c206bf4051b
+  support_policy_id: monthly-diffusion-conservative-coverage-v2

@@ -1,0 +1,77 @@
+output: frozen/analysis/decadal_sst
+training: [1966, 2006]
+coarsen_factor: 5
+cutoff_years: 10
+filter_half_width: 10
+modes: 3
+spectrum_segment_years: 64
+basis:
+  source: e3sm_reference
+  years: [1851, 2014]
+regions:
+  global:
+    label: Global ocean
+    bounds: [-90, 90, 0, 360]
+  pacific:
+    label: Pacific (60°S–65°N)
+    bounds: [-60, 65, 120, 280]
+  north_atlantic:
+    label: North Atlantic (0–70°N)
+    bounds: [0, 70, 280, 20]
+comparisons:
+  historical:
+    label: Historical internal variability
+    years: [1851, 2014]
+    method: ensemble
+    reference: e3sm_reference
+    sources: [e3sm_reference, e3sm_emulator]
+  future:
+    label: SSP3-7.0 internal variability
+    years: [2015, 2100]
+    method: ensemble
+    reference: e3sm_reference
+    sources: [e3sm_reference, e3sm_emulator, era5_emulator]
+  recent_internal:
+    label: Matched recent internal variability
+    years: [1959, 2025]
+    method: ensemble
+    reference: e3sm_reference
+    sources: [e3sm_reference, e3sm_emulator, era5_emulator]
+  recent_detrended:
+    label: Observational check · detrended trajectories
+    years: [1959, 2025]
+    method: detrended
+    reference: era5_reference
+    sources: [era5_reference, e3sm_reference, e3sm_emulator, era5_emulator]
+supports:
+  e3sm:
+    - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r1i1p1f1_185001-210012.zarr
+  era5:
+    - /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr
+sources:
+  e3sm_reference:
+    label: E3SMv2
+    color: '#1769AA'
+    paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r1i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r2i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r3i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r4i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r5i1p1f1_185001-210012.zarr
+  era5_reference:
+    label: ORAS5 SST
+    color: '#222222'
+    paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr
+  e3sm_emulator:
+    label: MDv1 · E3SMv2
+    color: '#009E73'
+    forecast: true
+    paths:
+      - frozen/runs/mdv1-e3smv2-r1i1p1f1/long_rollout/ssp370_1850_2100_5member
+  era5_emulator:
+    label: MDv1 · ERA5/ORAS5
+    color: '#D55E00'
+    forecast: true
+    paths:
+      - frozen/runs/mdv1-era5-oras5-sst-support/long_rollout/observed_init195802_195803_210012_5member

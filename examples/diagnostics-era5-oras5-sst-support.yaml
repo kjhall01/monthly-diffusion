@@ -1,0 +1,25 @@
+forecast: runs/mdv1-era5-oras5-sst-support/long_rollout/ssp370_1850_2100_5member_gaussian_spinup1845
+checkpoint: runs/mdv1-era5-oras5-sst-support/model.pt
+output: runs/mdv1-era5-oras5-sst-support/long_rollout/ssp370_1850_2100_5member_gaussian_spinup1845/diagnostics
+training_source: /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr
+references:
+  - /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr
+reference_kind: reanalysis
+reference_label: ERA5/ORAS5
+scenario_label: SSP3-7.0 projection
+anomaly_method: training_monthly_linear_detrend
+co2_netcdf: /Users/kyle/Dev/monthly-diffusion-data/data/co2-forcing-v1/products/co2_monthly_e3sm_ssp370_185001-210012.nc
+co2_sha256: 90f35163269bfa400219e035c561ddc85fb71690dc6d621101b11b4d60eb297d
+# 1845–1849 is latent-only constant-1850-CO2 spin-up, not saved/scored.
+evaluation: [1850, 2100]
+reference_evaluation: [1958, 2025]
+training: [1966, 2006]
+index_period: [1966, 2006]
+# Retain the previously selected training-climatology baseline for future maps.
+# There is no 1850 or future reanalysis verifying map.
+early: [1966, 2006]
+late: [2070, 2100]
+sample_start_year: 1980
+block_months: 12
+spectrum_segment_months: 240
+variables: [sfcWind, t2m, tcwv, mtpr, mslp, olr, z500, tau300_700, t850, t500, u200, v200, u50, ssrd, tau_x, tau_y, sst, ssh, sss, mld, sic, sivol, d20, ohc300, ohc700_minus_ohc300]

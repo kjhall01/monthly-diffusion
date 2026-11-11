@@ -1,0 +1,29 @@
+# Presentation-only revision; reuse the exact physical means, no archive reread.
+output: frozen/analysis/global_trajectories_e3sm_era5/recent_focus
+data_directory: frozen/analysis/global_trajectories_e3sm_era5
+years: [1850, 2100]
+main_years: [1958, 2025]
+main_xticks: [1960, 1980, 2000, 2020]
+inset_years: [1850, 2100]
+inset_xticks: [1850, 1950, 2050, 2100]
+show_style_legend: false
+show_inset_axis_labels: false
+training: [1966, 2006]
+variables: [t2m, sst, mtpr]
+sources:
+  e3sm_reference:
+    label: e3smv2
+    color: '#1769AA'
+    linestyle: solid
+  era5_reference:
+    label: era5-oras5
+    color: '#111111'
+    linestyle: solid
+  e3sm_emulator:
+    label: mdv1-e3smv2-r1i1p1f1
+    color: '#009E73'
+    linestyle: solid
+  era5_emulator:
+    label: mdv1-era5-oras5
+    color: '#D55E00'
+    linestyle: solid

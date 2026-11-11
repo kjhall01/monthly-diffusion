@@ -1,0 +1,30 @@
+# Run from /Users/kyle/Dev/umd. No inference or training is performed.
+output: frozen/analysis/enso_dynamics_1958_2025
+analysis_years: [1958, 2025]
+winter_years: [1959, 2024]
+lag_months: 12
+threshold_degC: 0.5
+training_member: r1i1p1f1
+map_variables: [ohc300, d20, tau_x, ssh]
+sources:
+  model:
+    label: Monthly Diffusion v1.0
+    forecast: true
+    calendar: noleap
+    paths:
+      - frozen/runs/mdv1-e3smv2-r1i1p1f1/long_rollout/ssp370_1850_2100_5member
+    support_paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r1i1p1f1_185001-210012.zarr
+  e3sm:
+    label: E3SMv2
+    calendar: noleap
+    paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r2i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r3i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r4i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r5i1p1f1_185001-210012.zarr
+  reanalysis:
+    label: ERA5/ORAS5
+    calendar: standard
+    paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr

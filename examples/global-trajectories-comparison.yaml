@@ -1,0 +1,45 @@
+output: frozen/analysis/global_trajectories_e3sm_era5
+years: [1850, 2100]
+inset_years: [1958, 2025]
+training: [1966, 2006]
+variables: [t2m, sst, mtpr]
+supports:
+  e3sm:
+    - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r1i1p1f1_185001-210012.zarr
+  era5:
+    - /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr
+sources:
+  e3sm_reference:
+    label: E3SMv2
+    support: e3sm
+    color: '#1769AA'
+    linestyle: solid
+    paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r1i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r2i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r3i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r4i1p1f1_185001-210012.zarr
+      - /Users/kyle/Dev/monthly-diffusion-data/data/e3smv2-five-member-1850-2100/regular_latlon_1deg/e3smv2_monthly_1deg_r5i1p1f1_185001-210012.zarr
+  e3sm_emulator:
+    label: Monthly Diffusion · E3SMv2
+    support: e3sm
+    color: '#1769AA'
+    linestyle: dashed
+    forecast: true
+    paths:
+      - frozen/runs/mdv1-e3smv2-r1i1p1f1/long_rollout/ssp370_1850_2100_5member
+  era5_reference:
+    label: ERA5 / ORAS5
+    support: era5
+    color: '#111111'
+    linestyle: solid
+    paths:
+      - /Users/kyle/Dev/monthly-diffusion-data/data/era5-oras5-1958-2025/regular_latlon_1deg/era5_oras5_monthly_1deg_195801-202512.zarr
+  era5_emulator:
+    label: Monthly Diffusion · ERA5 / ORAS5
+    support: era5
+    color: '#CE7024'
+    linestyle: dashed
+    forecast: true
+    paths:
+      - frozen/runs/mdv1-era5-oras5-sst-support/long_rollout/observed_init195802_195803_202512_5member

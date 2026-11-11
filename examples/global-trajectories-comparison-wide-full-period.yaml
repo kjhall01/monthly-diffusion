@@ -1,0 +1,42 @@
+# Presentation only: use the completed, unchanged physical-unit annual means.
+output: frozen/analysis/global_trajectories_e3sm_era5/through2100/wide_full_period
+data_directory: frozen/analysis/global_trajectories_e3sm_era5/through2100
+years: [1850, 2100]
+main_years: [1850, 2100]
+main_xticks: [1850, 1900, 1950, 2000, 2050, 2100]
+inset_years: [1958, 2025]
+inset_xticks: [1960, 1980, 2000, 2020]
+figsize: [18.8, 4.2]
+subplot_bottom: 0.25
+# Same physical height/width ratio as the prior long-timeline insets.
+main_box_aspect: 0.5390831680991624
+inset_bounds:
+  t2m: [0.07, 0.55, 0.54, 0.40]
+  sst: [0.07, 0.55, 0.54, 0.40]
+  mtpr: [0.07, 0.065, 0.54, 0.40]
+inset_clearance: 0.035
+show_style_legend: false
+show_inset_axis_labels: false
+show_inset_tick_labels: false
+show_inset_title: false
+outline_main_window: false
+outline_inset_window: true
+training: [1966, 2006]
+variables: [t2m, sst, mtpr]
+sources:
+  e3sm_reference:
+    label: e3smv2
+    color: '#1769AA'
+    linestyle: solid
+  era5_reference:
+    label: era5-oras5
+    color: '#111111'
+    linestyle: solid
+  e3sm_emulator:
+    label: mdv1-e3smv2-r1i1p1f1
+    color: '#009E73'
+    linestyle: solid
+  era5_emulator:
+    label: mdv1-era5-oras5
+    color: '#D55E00'
+    linestyle: solid

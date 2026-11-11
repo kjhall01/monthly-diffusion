@@ -1,0 +1,46 @@
+# Ocean-mask-aware 1-degree MDv1 ablation.
+# CO2 FiLM is retained only at level 0 (the final physical grid); the latent
+# mesh and intermediate meshes retain month/static FiLM only.
+centering: annual_zonal
+ae_width: 102
+latent_channels: 4
+mesh_levels: [4, 3, 2]
+refiners: [6, 6, 4]
+rotation: [17, 23, 11]
+co2_film_levels: [0]
+transition_width: 132
+transition_depth: 4
+transition_heads: 4
+transition_ffn_ratio: 1.55
+time_embedding_channels: 64
+atmosphere_tau: 0.5
+ocean_tau: 6.0
+coupling: jacobi
+cross_gradients: false
+ocean_mask_aware: true
+autoencoder_training:
+  batch_size: 4
+  max_epochs: 1000
+  patience: 5
+  min_delta: 0.0001
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer_eps: 0.000001
+  ema_decay: 0.995
+  seed: 20260716
+  validation_seeds: [271828, 314159]
+  rollout_steps: 3
+  loss_weight: 0.01
+diffusion_training:
+  batch_size: 4
+  max_epochs: 1000
+  patience: 5
+  min_delta: 0.0001
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer_eps: 0.000001
+  ema_decay: 0.995
+  seed: 20260716
+  validation_seeds: [271828, 314159]
+  rollout_steps: 3
+  loss_weight: 0.01

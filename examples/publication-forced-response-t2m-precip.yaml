@@ -1,0 +1,8 @@
+# Pure rendering of the existing ocean-mask-aware E3SM-model diagnostics.
+# Reference: held-out r2-r5. Model: five members. No recalculation/retraining.
+diagnostics: frozen/runs/mdv1-e3smv2-r1i1p1f1/long_rollout_ocean_mask_aware_epoch176/full_suite
+output: frozen/analysis/publication_figures/e3smv2_t2m_precip
+variables: [t2m, mtpr]
+column_titles: [E3SMv2, MDv1-E3SMv2, Difference]
+display_percentile: 99
+dpi: 450

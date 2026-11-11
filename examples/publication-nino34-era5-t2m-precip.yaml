@@ -1,0 +1,10 @@
+index_analysis: frozen/analysis/publication_figures/enso_four_sources_1958_2025
+output: frozen/analysis/publication_figures/era5_t2m_precip_nino34
+sources:
+  reference: era5_reference
+  model: era5_emulator
+variables: [t2m, mtpr]
+column_titles: [ERA5/ORAS5, MDv1-ERA5/ORAS5, Difference]
+block_months: 12
+display_percentile: 99
+dpi: 450
