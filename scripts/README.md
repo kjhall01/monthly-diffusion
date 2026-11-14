@@ -408,7 +408,19 @@ is saved must restart. The four-hour training/validation budget begins afterward
 export finishes outside that budget. On this much larger dataset, raise
 `TIME_LIMIT_HOURS` if a complete epoch plus validation cannot fit.
 
-Run in the existing environment (the optional `weatherbench` dependency group
+For Colab, upload [the training notebook](../notebooks/train_weatherbench_autoencoder.ipynb)
+using **File → Upload notebook**, then choose **Runtime → Change runtime type → GPU**.
+The notebook clones `production/emulator-v1`, installs dependencies, mounts Google
+Drive, and exposes the settings, model constructor, training/validation loop, and
+export in separate cells. Its defaults use batch size 8 and save to
+`/content/drive/MyDrive/monthly-diffusion/weatherbench2_anomalies`; the architecture
+and training logic match the script. Run the cells in order. The initial statistics
+pass must finish before it can be reused. After a disconnect, keep the same run
+directory/settings and set `RESUME = True` to recover completed epochs or finish
+exporting a selected model. A run with `model.pt` already selected will not train
+additional epochs on resume.
+
+Run the standalone script in the existing environment (the optional `weatherbench` dependency group
 adds `gcsfs`, Zarr and Dask if needed):
 
 ```bash
