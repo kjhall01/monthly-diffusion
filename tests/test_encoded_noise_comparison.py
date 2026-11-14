@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from monthly_diffusion.experiments import compare_encoded_noise as audit
+from workflows.experiments import compare_encoded_noise as audit
 
 
 def test_identical_latents_have_unit_spread_and_zero_mean_pattern_error():

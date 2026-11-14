@@ -7,24 +7,23 @@ Only latent trajectories/restarts are archived; finalists can be decoded later.
 Run from frozen/: python scripts/research/experiment_isotropic_cycling_sweep.py
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import hashlib
 import json
-import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 import torch
 
-from monthly_diffusion import MonthlyDiffusionV1
+from workflows.legacy_model import MonthlyDiffusionV1
 
 
-from monthly_diffusion.experiments.experiment_isotropic_cycling_sweep import (
-    OUTPUT,
-    CHECKPOINT,
-    run,
-)
+from workflows.experiments.experiment_isotropic_cycling_sweep import OUTPUT, CHECKPOINT, run
 
 stop_after_years = None
 
@@ -40,7 +39,7 @@ base = json.loads(
 if model.weight_digest() != base["weight_digest"]:
     raise ValueError("Checkpoint changed since original experiments")
 run(model, "screen_january", stop_after_years=stop_after_years)
-sources = [Path(__file__), ROOT / "monthly_diffusion/forecast.py"]
+sources = [Path(__file__), ROOT / "workflows/forecast.py"]
 (OUTPUT / "code_provenance.json").write_text(
     json.dumps(
         {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources}, indent=2

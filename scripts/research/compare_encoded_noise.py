@@ -13,10 +13,14 @@ real training latents to permit alternate comparisons. IID latent initialization
 and encoding zero-valued standardized fields are explanatory controls.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import json
-import sys
 import time
 
 import matplotlib
@@ -30,16 +34,12 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.data.sources import open_canonical_state, open_co2
-from monthly_diffusion.data.dataloader import month_features, co2_values
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.data.sources import open_canonical_state, open_co2
+from workflows.data.dataloader import month_features, co2_values
 
 
-from monthly_diffusion.experiments.compare_encoded_noise import (
-    COMPONENTS,
-    monthly_metrics,
-    plot_results,
-)
+from workflows.experiments.compare_encoded_noise import COMPONENTS, monthly_metrics, plot_results
 
 with torch.inference_mode():
     p = argparse.ArgumentParser(description=__doc__)
@@ -60,7 +60,7 @@ with torch.inference_mode():
     torch.set_num_threads(4)
     model = MonthlyDiffusionV1.load(args.run / "model.pt", device=args.device)
     model.autoencoder.eval()
-    cache = torch.load(args.run / "latents.pt", map_location="cpu", weights_only=False)
+    cache = load_checkpoint(args.run / "latents.pt", map_location="cpu", weights_only=False)
     assert cache["ae_digest"] == model.weight_digest(autoencoder_only=True)
     sources = yaml.safe_load((args.run / "data_sources.yaml").read_text())
     dates = pd.DatetimeIndex(cache["training_time"])
@@ -111,7 +111,6 @@ with torch.inference_mode():
             dtype=torch.float32,
             device=model.device,
         )[:, None]
-        static = model.preprocessor.static_tensor(model.statics).to(model.device)[None]
         variables = {}
         tick = time.monotonic()
         for ci, (component, source) in enumerate(zip(COMPONENTS, (atmos, ocean))):
@@ -138,7 +137,6 @@ with torch.inference_mode():
                     else None
                 )
                 context = (
-                    static.expand(stop - start, -1, -1, -1),
                     months[start:stop],
                     forcing[start:stop],
                 )

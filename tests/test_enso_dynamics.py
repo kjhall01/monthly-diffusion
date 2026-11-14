@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import pytest
-from monthly_diffusion.analysis.enso_dynamics import box_ec, detect_events, djf_indices
-from monthly_diffusion.analysis.lagged_enso import lagged_seasonal_means
+from workflows.analysis.enso_dynamics import box_ec, detect_events, djf_indices
+from workflows.analysis.lagged_enso import lagged_seasonal_means
 
 
 def make_indices(values):
@@ -76,7 +76,7 @@ def test_djf_predictor_keeps_raw_amplitude_and_correct_year():
 
 
 def test_streamed_three_way_products_with_synthetic_archive(tmp_path):
-    from monthly_diffusion.analysis.enso_dynamics import extract_source, lagged_products
+    from workflows.analysis.enso_dynamics import extract_source, lagged_products
 
     class Archive:
         members = [0, 1]

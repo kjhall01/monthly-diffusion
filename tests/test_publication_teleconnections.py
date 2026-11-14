@@ -3,9 +3,9 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from monthly_diffusion.analysis.climate import internal_variability, teleconnection
+from workflows.analysis.climate import internal_variability, teleconnection
 
-from monthly_diffusion.experiments import render_publication_teleconnections as module
+from workflows.experiments import render_publication_teleconnections as module
 
 
 def make_products(root):

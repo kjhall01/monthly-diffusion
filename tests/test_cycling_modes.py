@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from monthly_diffusion.experiments.diagnose_cycling_modes import fixed_month_anomalies, scalar_statistics, index_fields
-from monthly_diffusion.experiments.diagnose_latent_attractor import anomalies
-from monthly_diffusion.experiments import diagnose_cycling_modes as diagnostic
+from workflows.experiments.diagnose_cycling_modes import fixed_month_anomalies, scalar_statistics, index_fields
+from workflows.experiments.diagnose_latent_attractor import anomalies
+from workflows.experiments import diagnose_cycling_modes as diagnostic
 import torch
 
 

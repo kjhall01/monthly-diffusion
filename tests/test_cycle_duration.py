@@ -4,9 +4,9 @@ import torch
 import xarray as xr
 from test_cycled_initialization import CycleModel
 
-from monthly_diffusion.experiments import experiment_cycled_spinup as original
-from monthly_diffusion.experiments import experiment_local_moment_spinup as local
-from monthly_diffusion.experiments import experiment_cycle_duration as duration
+from workflows.experiments import experiment_cycled_spinup as original
+from workflows.experiments import experiment_local_moment_spinup as local
+from workflows.experiments import experiment_cycle_duration as duration
 
 
 def test_duration_cutoffs_common_prefix_and_resume(tmp_path,monkeypatch):

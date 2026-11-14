@@ -14,10 +14,14 @@ not remove the ensemble mean. Save a finite-N-corrected ensemble-mean-removal
 sensitivity as well. These are latent readouts, not decoded SST forecasts.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import json
-import sys
 
 import matplotlib
 
@@ -30,24 +34,14 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.data.sources import open_canonical_state, open_co2
-from monthly_diffusion.training.common import atomic_save
-from monthly_diffusion.analysis.indices import enso_index
-from monthly_diffusion.experiments.diagnose_enso_initialization import (
-    fit_readout,
-    design,
-    metrics,
-)
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.data.sources import open_canonical_state, open_co2
+from monthly_diffusion.checkpoints import atomic_save
+from workflows.analysis.indices import enso_index
+from workflows.experiments.diagnose_enso_initialization import fit_readout, design, metrics
 
 
-from monthly_diffusion.experiments.compare_noise_initialization_rollouts import (
-    COMPONENTS,
-    KINDS,
-    initial_histories,
-    paired_rollouts,
-    analyze,
-)
+from workflows.experiments.compare_noise_initialization_rollouts import COMPONENTS, KINDS, initial_histories, paired_rollouts, analyze
 
 with torch.inference_mode():
     p = argparse.ArgumentParser(description=__doc__)
@@ -70,7 +64,7 @@ with torch.inference_mode():
     model = MonthlyDiffusionV1.load(args.run / "model.pt", device=args.device)
     model.autoencoder.eval()
     model.transition.eval()
-    cache = torch.load(args.run / "latents.pt", map_location="cpu", weights_only=False)
+    cache = load_checkpoint(args.run / "latents.pt", map_location="cpu", weights_only=False)
     assert cache["ae_digest"] == model.weight_digest(autoencoder_only=True)
     sources = yaml.safe_load((args.run / "data_sources.yaml").read_text())
     args.output.mkdir(parents=True, exist_ok=True)
@@ -140,7 +134,7 @@ with torch.inference_mode():
     print(pd.DataFrame(skill).to_string(index=False), flush=True)
     initial_path = args.output / "encoded_history.pt"
     if initial_path.exists():
-        initial = torch.load(initial_path, map_location="cpu", weights_only=False)
+        initial = load_checkpoint(initial_path, map_location="cpu", weights_only=False)
     else:
         initial = initial_histories(
             model, (a, o), co2, first="1967-01", members=args.members, seed=args.seed
@@ -159,7 +153,7 @@ with torch.inference_mode():
         co2=model.preprocessor.co2_mean,
     )
     shards = [
-        torch.load(p, map_location="cpu", weights_only=False)
+        load_checkpoint(p, map_location="cpu", weights_only=False)
         for p in sorted(args.output.glob("year-*.pt"))
     ]
     fields = {}

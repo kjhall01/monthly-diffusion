@@ -8,9 +8,13 @@ how well atmosphere and ocean latents separately reconstruct physical ENSO
 
 from __future__ import annotations
 
-import argparse
-from pathlib import Path
+# Make the repository workflow helpers available when running this file directly.
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
+import argparse
 
 import matplotlib
 
@@ -24,14 +28,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
-from monthly_diffusion.data.sources import open_canonical_state
+from workflows.data.sources import open_canonical_state
 
 
-from monthly_diffusion.experiments.latent_mode_readouts import (
-    physical_indices,
-    ridge_fit,
-    metrics,
-)
+from workflows.experiments.latent_mode_readouts import physical_indices, ridge_fit, metrics
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--run", type=Path, default=ROOT / "runs/mdv1-e3smv2-r1i1p1f1")
@@ -45,7 +45,7 @@ source = yaml.safe_load(args.data.read_text())
 atmos, ocean, _ = open_canonical_state(
     source["state_zarr"], expected_attrs=source.get("expected_attrs")
 )
-cache = torch.load(args.run / "latents.pt", map_location="cpu", weights_only=False)
+cache = load_checkpoint(args.run / "latents.pt", map_location="cpu", weights_only=False)
 rows, series = [], {}
 for split, dates in (
     ("training", pd.DatetimeIndex(cache["training_time"].values)),

@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
 import xarray as xr
-from monthly_diffusion.analysis import *
+from workflows.analysis import *
 
 
 def test_area_and_uncentered_metrics():
-    from monthly_diffusion.analysis.spatial import weighted_uncentered_pattern_correlation
+    from workflows.analysis.spatial import weighted_uncentered_pattern_correlation
     x = xr.DataArray([[1., 1.], [3., 3.]], dims=("lat", "lon"), coords=dict(lat=[0, 60], lon=[0, 180]))
     assert float(weighted_mean(x)) == pytest.approx(5/3)
     assert float(weighted_uncentered_pattern_correlation(x, 2*x)) == pytest.approx(1)

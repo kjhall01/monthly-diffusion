@@ -3,10 +3,7 @@
 import numpy as np
 import pytest
 import xarray as xr
-from monthly_diffusion.analysis.trajectory import (
-    compare_trajectories,
-    monthly_anomalies,
-)
+from workflows.analysis.trajectory import compare_trajectories, monthly_anomalies
 
 
 @pytest.fixture
@@ -117,7 +114,7 @@ def test_main_plots_use_robinson_and_coastlines(fields, tmp_path, monkeypatch):
     pytest.importorskip("cartopy")
     from cartopy.mpl.geoaxes import GeoAxes
     import cartopy.crs as ccrs
-    from monthly_diffusion.analysis.trajectory_plots import plot_series, plot_maps
+    from workflows.analysis.trajectory_plots import plot_series, plot_maps
 
     coastlines = []
 

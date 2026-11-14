@@ -1,25 +1,22 @@
 """Stream a chosen trained model; source/forcing paths stay in an editable YAML."""
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import logging
-from pathlib import Path
 import torch
 import yaml
 import xarray as xr
-from monthly_diffusion.inference.metadata import forecast_metadata
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.data.dataloader import co2_values
-from monthly_diffusion.inference.forecast import Forecast
-from monthly_diffusion.inference.archive import (
-    prepare_archive,
-    write_month,
-)
-from monthly_diffusion.inference.spinup import spin_up
-from monthly_diffusion.data.sources import (
-    open_canonical_state,
-    open_co2,
-    hold_first_co2_back_to,
-)
+from workflows.inference.metadata import forecast_metadata
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.data.dataloader import co2_values
+from monthly_diffusion.rollout import Forecast
+from workflows.inference.archive import prepare_archive, write_month
+from workflows.inference.spinup import spin_up
+from workflows.data.sources import open_canonical_state, open_co2, hold_first_co2_back_to
 
 
 p = argparse.ArgumentParser()

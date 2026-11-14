@@ -1,150 +1,66 @@
-"""Model state and the xarray encode/decode API.
+"""Physical encode/decode and forecasts around already-created neural modules.
 
-Training lives in the scripts. This physical-data interface holds loaded neural
-modules as .autoencoder and .transition for inference and scientific experiments.
+ClimateModel does not construct architectures, read a config or train networks.
+The loader supplies the two AEs, transition, and their fitted preprocessing.
 """
 
-from pathlib import Path
 import hashlib
-import logging
 import numpy as np
 import torch
 import xarray as xr
-
-from .modules.mesh import (
-    make_equiangular_grid_from_xarray,
-    build_mesh_hierarchy_context,
-)
-from .modules.autoencoder import AutoencoderConfig, CoupledAutoencoder
-from .components.coupled_latent_diffusion import (
-    CoupledLatentDiffusion,
-    CoupledDiffusionConfig,
-)
-from .data.configs import ModelConfig
-from .data.preprocessing import Preprocessor
-from .data.dataloader import (
-    co2_values,
-    month_features,
-    validate_fields,
-    validate_units,
-)
-from .checkpoints import atomic_save
-from .inference.moments import fit_initialization_moments
-
-log = logging.getLogger(__name__)
+from monthly_diffusion.checkpoints import checkpoint_weights
+from monthly_diffusion.checkpoints import model_record
+from monthly_diffusion.checkpoints import atomic_save
+from monthly_diffusion.rollout import co2_values, month_features, next_month
+from monthly_diffusion.preprocessing import validate_fields, validate_units
+from monthly_diffusion.preprocessing import fit_initialization_moments
 
 
-class MonthlyDiffusionV1:
-    def __init__(self, *, statics=None, config=None, device=None, **kwargs):
-        if config is None:
-            self.config = ModelConfig(**kwargs)
-        elif isinstance(config, (str, Path)):
-            self.config = ModelConfig.from_yaml(config, **kwargs)
-        else:
-            values = (
-                config.to_dict() if isinstance(config, ModelConfig) else dict(config)
-            )
-            values.update(kwargs)
-            self.config = ModelConfig(**values)
-        self.device = torch.device(
-            device
-            or (
-                "mps"
-                if torch.backends.mps.is_available()
-                else "cuda"
-                if torch.cuda.is_available()
-                else "cpu"
-            )
-        )
+class ClimateModel:
+    def __init__(
+        self,
+        atmosphere,
+        ocean,
+        transition,
+        *,
+        preprocessor,
+        statics,
+        atmosphere_normalizer,
+        ocean_normalizer,
+        batch_size=4,
+    ):
+        self.autoencoder = torch.nn.Module()
+        self.autoencoder.atmosphere = atmosphere
+        self.autoencoder.ocean = ocean
+        self.transition = transition
+        self.preprocessor = preprocessor
         self.statics = statics
-        self.preprocessor = Preprocessor(
-            self.config.variables, self.config.centering, self.config.ocean_support
-        )
-        self.latent_normalizers = {}
-        self.initialization_moments = {}
-        self.stages = {}
-        self.autoencoder = self.transition = None
-
-    def _build(self):
-        if self.statics is None:
-            raise ValueError(
-                "Supply static phi_s and lsm fields once, at construction or prepare()"
-            )
-        self.statics = self.statics[["phi_s", "lsm"]].transpose("lat", "lon").load()
-        grid = make_equiangular_grid_from_xarray(
-            self.statics.lat, self.statics.lon, name="grid"
-        )
-        c = self.config
-        self.geometry = build_mesh_hierarchy_context(
-            nlat=len(self.statics.lat),
-            nlon=len(self.statics.lon),
-            mesh_levels=c.mesh_levels,
-            rotation_degrees=c.rotation,
-            grid=grid,
-        )
+        self.device = next(atmosphere.parameters()).device
+        self.geometry = atmosphere.encoder.geometry
+        self.latent_normalizers = {
+            "atmosphere": atmosphere_normalizer,
+            "ocean": ocean_normalizer,
+        }
+        for component, network in (("atmosphere", atmosphere), ("ocean", ocean)):
+            if network.preprocessor is None:
+                network.preprocessor = preprocessor.for_component(component)
+            network.latent_normalizer = self.latent_normalizers[component]
         self.names = {
-            component: [v.name for v in c.variables if v.component == component]
+            component: [
+                v.name for v in preprocessor.variables if v.component == component
+            ]
             for component in ("atmosphere", "ocean")
         }
-        if not all(self.names.values()):
-            raise ValueError(
-                "MonthlyDiffusionV1 requires both components; use atomic modules for a single component"
-            )
-        ae_config = AutoencoderConfig(
-            c.ae_width,
-            c.latent_channels,
-            tuple(c.mesh_levels),
-            tuple(c.refiners),
-            tuple(c.rotation),
-            tuple(c.co2_film_levels),
-        )
-        self.autoencoder = CoupledAutoencoder(
-            len(self.names["atmosphere"]),
-            len(self.names["ocean"]),
-            self.geometry,
-            (len(self.statics.lat), len(self.statics.lon)),
-            ae_config,
-            ocean_mask_aware=c.ocean_mask_aware,
-        ).to(self.device)
-        self.transition = CoupledLatentDiffusion(
-            CoupledDiffusionConfig(
-                atmosphere_latent_channels=c.latent_channels,
-                ocean_latent_channels=c.latent_channels,
-                n_latent_tokens=self.geometry.graphs[
-                    f"mesh_l{len(c.mesh_levels) - 1}"
-                ].n_nodes,
-                width=c.transition_width,
-                depth=c.transition_depth,
-                n_heads=c.transition_heads,
-                ffn_ratio=c.transition_ffn_ratio,
-                time_embedding_channels=c.time_embedding_channels,
-                atmosphere_tau=c.atmosphere_tau,
-                ocean_tau=c.ocean_tau,
-                coupling=c.coupling,
-                cross_gradients=c.cross_gradients,
-            )
-        ).to(self.device)
-
-    def prepare(self, atmosphere, ocean, *, co2, statics=None):
-        """Fit physical statistics on these TRAINING states only, then build modules."""
-        if statics is not None:
-            self.statics = statics
-        if self.autoencoder is not None:
-            raise RuntimeError(
-                "Already prepared; load a checkpoint or construct a fresh wrapper"
-            )
-        torch.manual_seed(self.config.autoencoder_training.seed)
-        self._build()
-        self._validate_pair(atmosphere, ocean)
-        forcing = co2_values(co2, atmosphere.time)
-        self.preprocessor.fit(atmosphere, ocean, self.statics, forcing)
-        return self
+        self.inference_batch_size = batch_size
+        self.training_settings = {}
+        self.initialization_moments = {}
+        self.stages = {}
 
     def _validate_pair(self, atmosphere, ocean):
         for component, ds in (("atmosphere", atmosphere), ("ocean", ocean)):
             validate_fields(ds, self.names[component], self.statics)
             validate_units(
-                ds, [v for v in self.config.variables if v.component == component]
+                ds, [v for v in self.preprocessor.variables if v.component == component]
             )
         if not np.array_equal(atmosphere.time, ocean.time):
             raise ValueError(
@@ -166,7 +82,7 @@ class MonthlyDiffusionV1:
                 continue
             validate_fields(ds, self.names[component], self.statics)
             validate_units(
-                ds, [v for v in self.config.variables if v.component == component]
+                ds, [v for v in self.preprocessor.variables if v.component == component]
             )
             months = month_features(ds.time).to(self.device)
             forcing = torch.tensor(
@@ -177,12 +93,11 @@ class MonthlyDiffusionV1:
                 dtype=torch.float32,
                 device=self.device,
             )[:, None]
-            static = self.preprocessor.static_tensor(self.statics).to(self.device)[None]
             latents = []
             batch = getattr(
                 self,
                 "inference_batch_size",
-                self.config.autoencoder_training.batch_size,
+                self.training_settings.get("atmosphere", {}).get("batch_size", 4),
             )
             for start in range(0, len(ds.time), batch):
                 physical = self.preprocessor.encode(
@@ -203,14 +118,13 @@ class MonthlyDiffusionV1:
                 )
                 z = getattr(self.autoencoder, component).encode(
                     x,
-                    static.expand(len(x), -1, -1, -1),
                     months[start : start + batch],
                     forcing[start : start + batch],
                     node_mask=node_mask,
                 )
                 latents.append(self.latent_normalizers[component].normalize(z).cpu())
-            geometry = getattr(self.autoencoder, component).encoder.context.geometry
-            graph = geometry.graphs[geometry.metadata["mesh_level_names"][-1]]
+            geometry = getattr(self.autoencoder, component).encoder.geometry
+            graph = geometry.meshes[-1]
             outputs.append(
                 xr.DataArray(
                     torch.cat(latents).numpy(),
@@ -262,15 +176,14 @@ class MonthlyDiffusionV1:
                 dtype=torch.float32,
                 device=self.device,
             ).repeat_interleave(members)[:, None]
-            static = self.preprocessor.static_tensor(self.statics).to(self.device)[None]
             decoded = []
             batch = getattr(
                 self,
                 "inference_batch_size",
-                self.config.autoencoder_training.batch_size,
+                self.training_settings.get("atmosphere", {}).get("batch_size", 4),
             )
             ocean_mask = None
-            if component == "ocean" and self.config.ocean_mask_aware:
+            if component == "ocean" and self.autoencoder.ocean.mask_aware:
                 # Prefer the train-fitted SST availability mask so training and
                 # latent decoding use the same ocean support.  The LSM fallback
                 # keeps the atomic wrapper usable with custom ocean variables.
@@ -289,12 +202,13 @@ class MonthlyDiffusionV1:
                 latent = self.latent_normalizers[component].denormalize(latent)
                 fields = getattr(self.autoencoder, component).decode(
                     latent,
-                    static.expand(len(latent), -1, -1, -1),
                     month[start : start + batch],
                     forcing[start : start + batch],
-                    node_mask=None
-                    if ocean_mask is None
-                    else ocean_mask[None].expand(len(latent), -1, -1),
+                    node_mask=(
+                        None
+                        if ocean_mask is None
+                        else ocean_mask[None].expand(len(latent), -1, -1)
+                    ),
                 )
                 decoded.append(fields.cpu().numpy())
             values = np.concatenate(decoded).reshape(
@@ -344,6 +258,7 @@ class MonthlyDiffusionV1:
         gaussian_start=None,
         encoded_noise_start=None,
         stochastic_start=None,
+        guidance_scale=1.0,
     ):
         """Return a stateful latent iterator, with observed or stochastic histories.
 
@@ -357,7 +272,7 @@ class MonthlyDiffusionV1:
         CO2 must cover both history months and every generated month (or be a
         scalar). Training-fitted initialization_moments must be present.
         """
-        from .inference.forecast import Forecast
+        from monthly_diffusion.rollout import Forecast
 
         return Forecast(
             self,
@@ -369,6 +284,7 @@ class MonthlyDiffusionV1:
             gaussian_start=gaussian_start,
             encoded_noise_start=encoded_noise_start,
             stochastic_start=stochastic_start,
+            guidance_scale=guidance_scale,
         )
 
     def rollout(
@@ -389,6 +305,7 @@ class MonthlyDiffusionV1:
         save_spinup_latents=False,
         stochastic_start=None,
         extend=False,
+        guidance_scale=1.0,
     ):
         """Generate ``months`` saved months, optionally after discarded latent-only spin-up.
 
@@ -405,8 +322,55 @@ class MonthlyDiffusionV1:
         otherwise it is the first saved prediction. See initialize().
         ``resume=True, extend=True`` continues a completed archive to a longer
         horizon, requiring identical checkpoint/initialization/forcing history.
+        Archive writing requires the checkout's workflows/ helpers; in-memory
+        forecasts work with the installed package alone.
         """
-        from .inference.rollout import rollout
+        if path is None:
+            if extend or resume or save_spinup_latents:
+                raise ValueError(
+                    "Archive resume and saved spin-up latents require a path"
+                )
+            if months < 1 or spinup_months < 0:
+                raise ValueError(
+                    "months must be positive and spinup_months nonnegative"
+                )
+            forecast = self.initialize(
+                atmos,
+                ocean,
+                co2=co2,
+                members=members,
+                seed=seed,
+                gaussian_start=gaussian_start,
+                encoded_noise_start=encoded_noise_start,
+                stochastic_start=stochastic_start,
+                guidance_scale=guidance_scale,
+            )
+            # Check the complete forcing coverage before generating any months.
+            dates, date = [], forecast.times[0]
+            for _ in range(spinup_months + months):
+                date = next_month(date)
+                dates.append(date)
+            co2_values(co2, xr.DataArray(dates, dims="time", coords={"time": dates}))
+            attrs = dict(
+                checkpoint_sha256=self.weight_digest(),
+                seed=seed,
+                initialization_time=str(forecast.times[0]),
+                history_order="current, previous",
+            )
+            if self.transition.condition_on_co2:
+                attrs["guidance_scale"] = float(guidance_scale)
+            for _ in range(spinup_months):
+                next(forecast)
+            results = []
+            for _ in range(months):
+                atmosphere_latent, ocean_latent = next(forecast)
+                fields = xr.merge(self.decode(atmosphere_latent, ocean_latent, co2=co2))
+                fields = fields.assign_coords(co2=co2_values(co2, fields.time))
+                fields.attrs.update(attrs)
+                results.append(fields)
+            return xr.concat(results, dim="time")
+
+        from workflows.forecast import rollout
 
         return rollout(
             self,
@@ -425,6 +389,7 @@ class MonthlyDiffusionV1:
             save_spinup_latents=save_spinup_latents,
             stochastic_start=stochastic_start,
             extend=extend,
+            guidance_scale=guidance_scale,
         )
 
     def weight_digest(self, *, autoencoder_only=False):
@@ -435,7 +400,9 @@ class MonthlyDiffusionV1:
             else (self.autoencoder, self.transition)
         )
         for module in modules:
-            for name, tensor in module.state_dict().items():
+            if module is None:
+                continue
+            for name, tensor in checkpoint_weights(module).items():
                 digest.update(name.encode())
                 digest.update(tensor.detach().cpu().contiguous().numpy().tobytes())
         return digest.hexdigest()
@@ -444,19 +411,30 @@ class MonthlyDiffusionV1:
         """Trusted local torch checkpoint: parameters plus complete scientific state."""
         payload = dict(
             format_version=1,
-            config=self.config.to_dict(),
+            config=model_record(self),
             statics=self.statics,
             preprocessing=self.preprocessor,
             normalizers=self.latent_normalizers,
             stages=self.stages,
             initialization_moments=self.initialization_moments,
-            autoencoder=self.autoencoder.state_dict(),
-            transition=self.transition.state_dict(),
+            autoencoder=checkpoint_weights(self.autoencoder),
+            transition=(
+                None if self.transition is None else self.transition.state_dict()
+            ),
             torch_version=str(torch.__version__),
+            # Torch attention can choose a different execution path for frozen
+            # weights. Preserve that choice across an export/reload.
+            frozen_modules=[
+                name
+                for name in ("autoencoder", "transition")
+                if getattr(self, name) is not None
+                and not any(p.requires_grad for p in getattr(self, name).parameters())
+            ],
         )
         if hasattr(self, "component_parameters"):
             payload["component_parameters"] = self.component_parameters
-            payload["transition_parameters"] = self.transition_parameters
+            if hasattr(self, "transition_parameters"):
+                payload["transition_parameters"] = self.transition_parameters
         if hasattr(self, "run_identity"):
             payload["run_identity"] = self.run_identity
             payload["training_settings"] = self.training_settings
@@ -466,51 +444,9 @@ class MonthlyDiffusionV1:
 
     @classmethod
     def load(cls, path, *, device=None):
-        saved = torch.load(path, map_location="cpu", weights_only=False)
-        if saved.get("format_version") != 1:
-            raise ValueError(
-                "Not a monthly_diffusion standalone checkpoint; legacy importing is not supported"
-            )
-        model = cls(statics=saved["statics"], config=saved["config"], device=device)
-        if "component_parameters" in saved:
-            from .model_loading import build_autoencoder
+        from .loading import load_model
 
-            model.names = {
-                c: [v.name for v in model.config.variables if v.component == c]
-                for c in ("atmosphere", "ocean")
-            }
-            model.autoencoder = torch.nn.Module()
-            model.component_parameters = saved["component_parameters"]
-            model.transition_parameters = saved["transition_parameters"]
-            for component, parameters in model.component_parameters.items():
-                model.autoencoder.add_module(
-                    component,
-                    build_autoencoder(
-                        parameters,
-                        model.statics,
-                        len(model.names[component]),
-                        model.device,
-                    ),
-                )
-            model.geometry = model.autoencoder.atmosphere.encoder.context.geometry
-            model.transition = CoupledLatentDiffusion(**model.transition_parameters).to(
-                model.device
-            )
-        else:
-            model._build()
-        model.autoencoder.load_state_dict(saved["autoencoder"])
-        model.transition.load_state_dict(saved["transition"])
-        model.preprocessor, model.latent_normalizers = (
-            saved["preprocessing"],
-            saved["normalizers"],
-        )
-        model.stages = saved["stages"]
-        if "inference_batch_size" in saved:
-            model.inference_batch_size = saved["inference_batch_size"]
-        if "run_identity" in saved:
-            model.run_identity = saved["run_identity"]
-            model.training_settings = saved["training_settings"]
-        model.initialization_moments = saved.get("initialization_moments", {})
-        model.autoencoder.eval()
-        model.transition.eval()
+        model = load_model(path, device=device)
+        if not isinstance(model, cls):
+            raise TypeError("This file does not contain a complete climate model")
         return model

@@ -12,10 +12,10 @@ import torch
 import xarray as xr
 import yaml
 
-from monthly_diffusion.forecast import Forecast, rollout
-from monthly_diffusion.data.dataloader import month_features
-from monthly_diffusion.data.preprocessing import LatentNormalizer
-from monthly_diffusion.data.sources import hold_first_co2_back_to
+from workflows.forecast import Forecast, rollout
+from workflows.data.dataloader import month_features
+from monthly_diffusion.preprocessing import LatentNormalizer
+from workflows.data.sources import hold_first_co2_back_to
 from test_gaussian_forecast import ToyModel
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +27,7 @@ class ToyEncoder:
     def __init__(self, nodes):
         self.nodes, self.calls = nodes, []
 
-    def encode(self, x, statics, months, forcing, node_mask):
+    def encode(self, x, months, forcing, node_mask):
         self.calls.append((x.clone(), months.clone(), forcing.clone(), node_mask.clone()))
         # Nontrivial, deterministic encoding; don't sample any Torch noise.
         z = x.nanmean((1, 2, 3)) + months[:, 0] + forcing[:, 0]

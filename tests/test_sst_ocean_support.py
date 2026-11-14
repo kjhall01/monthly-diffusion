@@ -1,3 +1,4 @@
+from workflows.legacy_records import read_settings
 """SST support is fitted on training only and shared by targets and evaluation."""
 from dataclasses import replace
 from pathlib import Path
@@ -5,12 +6,14 @@ import numpy as np
 import pytest
 import torch
 import xarray as xr
-from monthly_diffusion import MonthlyDiffusionV1, ModelConfig, Variable
-from monthly_diffusion.data.preprocessing import Preprocessor
-from monthly_diffusion.data.dataloader import PhysicalStates, co2_values
-from monthly_diffusion.modules.autoencoder import reconstruction_mse
-from monthly_diffusion.analysis.archives import ClimateArchive
-from monthly_diffusion.analysis.spatial import weighted_mean
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.legacy_records import ModelSettings
+from monthly_diffusion.preprocessing import Variable
+from monthly_diffusion.preprocessing import Preprocessor
+from workflows.data.dataloader import PhysicalStates, co2_values
+from workflows.training.losses import reconstruction_mse
+from workflows.analysis.archives import ClimateArchive
+from workflows.analysis.spatial import weighted_mean
 
 
 def with_extra_ocean_cells(tiny_data):
@@ -64,14 +67,14 @@ def test_common_support_precedes_stats_preserves_nan_and_real_zeros(tiny_data):
 
 def test_new_run_only_changes_support_and_keeps_legacy_config_identity():
     root = Path(__file__).resolve().parents[1]
-    old = ModelConfig.from_yaml(root/"examples/model-era5-oras5.yaml")
-    new = ModelConfig.from_yaml(root/"examples/model-era5-oras5-sst-support.yaml")
+    old = read_settings(root/"examples/model-era5-oras5.yaml")[0]
+    new = read_settings(root/"examples/model-era5-oras5-sst-support.yaml")[0]
     values = new.to_dict()
     assert values.pop("ocean_support") == "sst"
     assert values == old.to_dict()
     assert "ocean_support" not in old.to_dict()
     with pytest.raises(ValueError,match="ocean_support"):
-        ModelConfig(ocean_support="unknown")
+        ModelSettings(ocean_support="unknown")
     launcher = (root/"scripts/recipes/train_era5_oras5_sst_support.sh").read_text()
     assert "runs/mdv1-era5-oras5-sst-support" in launcher
     assert "--device mps --threads 4 --load-in-memory" in launcher

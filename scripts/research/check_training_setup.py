@@ -6,12 +6,16 @@ The one-year statistics and randomly initialized weights are disposable: full
 training independently fits its statistics on 1966--2006 and starts from seed.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from workflows.training.losses import rollout_loss
 import argparse
 import json
 import logging
-from pathlib import Path
 import resource
-import sys
 import time
 import numpy as np
 import torch
@@ -20,16 +24,12 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1, ModelConfig
-from monthly_diffusion.data.sources import open_canonical_state, open_co2
-from monthly_diffusion.data.dataloader import (
-    PhysicalStates,
-    co2_values,
-    month_features,
-    validate_months,
-)
-from monthly_diffusion.data.preprocessing import inverse_transform, transform
-from monthly_diffusion.modules.autoencoder import reconstruction_mse
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.legacy_records import read_settings
+from workflows.data.sources import open_canonical_state, open_co2
+from workflows.data.dataloader import PhysicalStates, co2_values, month_features, validate_months
+from monthly_diffusion.preprocessing import inverse_transform, transform
+from workflows.training.losses import reconstruction_mse
 
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -43,9 +43,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s")
 torch.set_num_threads(4)
 if args.device == "mps" and not torch.backends.mps.is_available():
     raise RuntimeError("MPS requested but unavailable; refusing CPU fallback")
-cfg = ModelConfig.from_yaml(args.config)
+cfg, training = read_settings(args.config)
 if args.reference_config:
-    assert cfg.to_dict() == ModelConfig.from_yaml(args.reference_config).to_dict(), (
+    assert cfg.to_dict() == read_settings(args.reference_config)[0].to_dict(), (
         "Model configurations differ"
     )
 source = yaml.safe_load(args.source.read_text())
@@ -60,10 +60,9 @@ for lo, hi, n in ((1966, 2006, 492), (1958, 1965, 96), (2007, 2014, 96)):
     part = a.sel(time=slice(str(lo), str(hi)))
     assert part.sizes["time"] == n, f"Incomplete {lo}--{hi} split"
 a, o = a.sel(time="1966").load(), o.sel(time="1966").load()
-model = MonthlyDiffusionV1(statics=statics, config=cfg, device=args.device)
+model = MonthlyDiffusionV1(statics=statics, settings=cfg, device=args.device)
 model.prepare(a, o, co2=co2)
-for name in ("grid_to_mesh_l0", "mesh_l0_to_mesh_l1", "mesh_l1_to_mesh_l2"):
-    graph = model.geometry.maps[name]
+for graph in model.geometry.down_maps:
     assert torch.bincount(graph.edge_set.receiver, minlength=graph.n_target).min() > 0
 assert model.autoencoder.ocean.mask_aware == cfg.ocean_mask_aware
 initial_digest = model.weight_digest()
@@ -115,20 +114,15 @@ for component, fields in (("atmosphere", a), ("ocean", o)):
             max_roundtrip_error=float(error.max()),
         )
 dataset = PhysicalStates(a, o, model.preprocessor, co2_values(co2, a.time))
-batch = next(iter(DataLoader(dataset, batch_size=cfg.autoencoder_training.batch_size)))
+batch = next(iter(DataLoader(dataset, batch_size=training["atmosphere"]["batch_size"])))
 batch = {k: v.to(model.device) for k, v in batch.items()}
 b = len(batch["month"])
-static = (
-    model.preprocessor.static_tensor(statics)
-    .to(model.device)[None]
-    .expand(b, -1, -1, -1)
-)
 lat = torch.tensor(statics.lat.values, device=model.device)
 loss = 0.0
 started = time.monotonic()
 for component in ("atmosphere", "ocean"):
     prediction, z = getattr(model.autoencoder, component)(
-        batch[component], static, batch["month"], batch["co2"]
+        batch[component], batch["month"], batch["co2"]
     )
     assert torch.isfinite(prediction).all() and torch.isfinite(z).all()
     per_field = reconstruction_mse(prediction, batch[component], lat)
@@ -151,8 +145,8 @@ del prediction, z, loss, per_field, batch
 # reanalysis adapter. Exercise the real three-step loss with full-size
 # synthetic normalized latents, without fitting a toy transition.
 c = cfg.latent_channels
-nodes = model.geometry.graphs["mesh_l2"].n_nodes
-h = cfg.diffusion_training.rollout_steps
+nodes = model.geometry.meshes[-1].n_nodes
+h = training["diffusion"]["rollout_steps"]
 sequence = dict(
     atmosphere=torch.randn(b, h + 2, nodes, c, device=model.device),
     ocean=torch.randn(b, h + 2, nodes, c, device=model.device),
@@ -160,7 +154,7 @@ sequence = dict(
     .to(model.device)[None]
     .expand(b, -1, -1),
 )
-terms = model.transition.rollout_loss(sequence)
+terms = rollout_loss(model.transition, sequence['atmosphere'], sequence['ocean'], sequence['month']).metrics()
 assert all(torch.isfinite(v).all() for v in terms.values())
 terms["loss"].backward()
 assert all(

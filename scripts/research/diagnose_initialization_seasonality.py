@@ -6,13 +6,16 @@ The monthly/trend fits use the stated simulation window, not physical years
 1966–2006, so they reproduce an anomaly operator, not the original experiment.
 """
 
-from pathlib import Path
+# Make the repository workflow helpers available when running this file directly.
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from monthly_diffusion.experiments.diagnose_isotropic_cycling_sweep import OUTPUT
+from workflows.experiments.diagnose_isotropic_cycling_sweep import OUTPUT
 
 
-from monthly_diffusion.experiments.diagnose_initialization_seasonality import run
+from workflows.experiments.diagnose_initialization_seasonality import run
 
 run(OUTPUT / "confirm_january")

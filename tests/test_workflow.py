@@ -2,7 +2,8 @@ import numpy as np
 import torch
 import xarray as xr
 import pytest
-from monthly_diffusion import MonthlyDiffusionV1, open_rollout
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.inference.archive import open_rollout
 
 
 @pytest.mark.parametrize("device", ["cpu", "mps"])

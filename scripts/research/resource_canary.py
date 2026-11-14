@@ -6,19 +6,25 @@ encodes, current reconstruction, three-step diffusion). Targets use identical
 weights under no_grad; no second full AE is needed for a timing experiment.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from workflows.training.losses import rollout_loss
 import argparse
 import json
 import resource
 import time
-from pathlib import Path
 import numpy as np
 import torch
 import xarray as xr
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.modules.autoencoder import reconstruction_mse
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.training.losses import reconstruction_mse
 
 
-from monthly_diffusion.devices import synchronize
+from workflows.devices import synchronize
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -49,6 +55,8 @@ statics = xr.Dataset(
 )
 torch.manual_seed(20260716)
 model = MonthlyDiffusionV1(statics=statics, device=device)
+# Synthetic topography is already zero; no physical-data fit is needed here.
+model.preprocessor.topo_mean, model.preprocessor.topo_std = 0.0, 1.0
 model._build()
 b = args.batch_size
 ae, transition = model.autoencoder, model.transition
@@ -57,7 +65,6 @@ optimizer = torch.optim.AdamW(
 )
 a = torch.randn(b, 16, nlat, nlon, device=device)
 o = torch.randn(b, 9, nlat, nlon, device=device)
-static = torch.zeros(b, 2, nlat, nlon, device=device)
 month = torch.randn(b, 5, 2, device=device)
 co2 = torch.randn(b, 5, 1, device=device)
 lat = torch.tensor(statics.lat.values, dtype=torch.float32, device=device)
@@ -76,34 +83,28 @@ for repeat in range(args.repeats + 1):
         loss, latent = 0.0, {}
         for name, data in (("atmosphere", a), ("ocean", o)):
             branch = getattr(ae, name)
-            prediction, z = branch(data, static, month[:, 1], co2[:, 1])
+            prediction, z = branch(data, month[:, 1], co2[:, 1])
             loss = (
                 loss + (reconstruction_mse(prediction, data, lat) * weights[name]).sum()
             )
             if args.mode == "joint":
-                previous = branch.encode(data, static, month[:, 0], co2[:, 0]).detach()
+                previous = branch.encode(data, month[:, 0], co2[:, 0]).detach()
                 with torch.no_grad():
                     targets = [
-                        branch.encode(data, static, month[:, i], co2[:, i])
+                        branch.encode(data, month[:, i], co2[:, i])
                         for i in range(2, 5)
                     ]
                 latent[name] = torch.stack([previous, z.detach(), *targets], 1)
         if args.mode == "joint":
-            loss = loss + transition.rollout_loss(dict(**latent, month=month))["loss"]
+            loss = loss + rollout_loss(transition, dict(**latent, month=month)['atmosphere'], dict(**latent, month=month)['ocean'], dict(**latent, month=month)['month']).metrics()["loss"]
         loss.backward()
         optimizer.step()
     elif args.mode == "encode":
         with torch.no_grad():
-            ae.atmosphere.encode(a, static, month[:, 1], co2[:, 1])
-            ae.ocean.encode(o, static, month[:, 1], co2[:, 1])
+            ae.atmosphere.encode(a, month[:, 1], co2[:, 1])
+            ae.ocean.encode(o, month[:, 1], co2[:, 1])
     else:
-        loss = transition.rollout_loss(
-            dict(
-                atmosphere=torch.randn(b, 5, 162, 4, device=device),
-                ocean=torch.randn(b, 5, 162, 4, device=device),
-                month=month,
-            )
-        )["loss"]
+        loss = rollout_loss(transition, torch.randn(b, 5, 162, 4, device=device), torch.randn(b, 5, 162, 4, device=device), month).metrics()["loss"]
         loss.backward()
         optimizer.step()
     synchronize(device)

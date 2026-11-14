@@ -8,11 +8,15 @@ the original per-month SST message mask. It decomposes, but never changes,
 the reconstruction objective into cells inside/outside that support.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import hashlib
 import json
-import sys
 
 import matplotlib
 
@@ -28,13 +32,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 
-from monthly_diffusion.experiments.compare_training_histories import (
-    RUNS,
-    LABELS,
-    COLORS,
-    save,
-    validation_support,
-)
+from workflows.experiments.compare_training_histories import RUNS, LABELS, COLORS, save, validation_support
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(
@@ -64,7 +62,7 @@ for key, run in runs.items():
         histories[key, stage] = d
         score = "val_loss" if stage == "autoencoder" else "val_transition"
         row = d.loc[d[score].idxmin()]
-        chosen = torch.load(
+        chosen = load_checkpoint(
             run / stage / "best.pt", map_location="cpu", weights_only=False
         )
         assert chosen["epoch"] == int(row.epoch)

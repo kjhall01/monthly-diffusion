@@ -7,11 +7,14 @@ scored fields and both full latent states are archived, allowing other fields
 to be decoded later without rerunning stochastic transitions.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import fcntl
 import shutil
-import sys
 
 import torch
 import yaml
@@ -20,12 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 
-from monthly_diffusion.experiments.test_set_seasonal_hindcasts import (
-    infer,
-    score,
-    comparison_map,
-    plot,
-)
+from workflows.experiments.test_set_seasonal_hindcasts import infer, score, comparison_map, plot
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(

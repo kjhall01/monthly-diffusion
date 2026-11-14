@@ -3,16 +3,18 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 import xarray as xr
-from monthly_diffusion.forecast import Forecast
+from workflows.forecast import Forecast
 from test_gaussian_forecast import ToyModel
 
-from monthly_diffusion.experiments import pilot_cycled_initialization as pilot
+from workflows.experiments import pilot_cycled_initialization as pilot
 
 
 class CycleModel(ToyModel):
     def __init__(self):
         super().__init__(nodes=4)
         self.config.latent_channels = 1
+        for normalizer in self.latent_normalizers.values():
+            normalizer.mean = torch.zeros(1)
         self.preprocessor = SimpleNamespace(ocean_support_mask=None,
             stats={v:dict(mask=np.ones((2, 2), bool)) for v in pilot.VARIABLES})
         self.encodes = 0

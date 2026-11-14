@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 import xarray as xr
-from monthly_diffusion.analysis import internal_variability, teleconnection, temporal_spectrum
-from monthly_diffusion.analysis.long_rollout import RegressionMoments, save_dataset, variable_products
+from workflows.analysis import internal_variability, teleconnection, temporal_spectrum
+from workflows.analysis.long_rollout import RegressionMoments, save_dataset, variable_products
 
 
 def test_streamed_ols_matches_package_regression_with_masks():
@@ -56,7 +56,7 @@ def test_internal_variability_refuses_single_member():
 
 
 def test_archive_preserves_member_identity_missing_cells_and_derivations(tmp_path):
-    from monthly_diffusion.analysis.archives import ClimateArchive
+    from workflows.analysis.archives import ClimateArchive
     dates = xr.date_range("2000-01", periods=3, freq="MS")
     ds = xr.Dataset(coords=dict(time=dates,lat=[0.],lon=[0.,120.,240.]))
     for variable, values, unit in (("sic", [0.,.5,np.nan], "1"),
@@ -83,7 +83,7 @@ def test_archive_preserves_member_identity_missing_cells_and_derivations(tmp_pat
 
 def test_forecast_shard_wrong_date_is_rejected(tmp_path):
     import json
-    from monthly_diffusion.analysis.archives import ClimateArchive
+    from workflows.analysis.archives import ClimateArchive
     dates = xr.date_range("2000-01",periods=2,freq="MS")
     record = dict(months=2,valid_times=[str(t) for t in dates],checkpoint_sha256="abc")
     (tmp_path/"forecast.json").write_text(json.dumps(record))

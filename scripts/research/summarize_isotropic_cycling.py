@@ -4,21 +4,16 @@ Run from frozen/: python scripts/research/summarize_isotropic_cycling.py
 This reads existing trajectories only. It never loads a model for inference.
 """
 
-from pathlib import Path
+# Make the repository workflow helpers available when running this file directly.
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pandas as pd
 import xarray as xr
-from monthly_diffusion.experiments.diagnose_isotropic_cycling_sweep import (
-    OUTPUT,
-    compare,
-    plot,
-    pool_confirmation,
-    anomaly_sensitivity,
-    joint_and_seasonal,
-    paired_separation,
-)
+from workflows.experiments.diagnose_isotropic_cycling_sweep import OUTPUT, compare, plot, pool_confirmation, anomaly_sensitivity, joint_and_seasonal, paired_separation
 
 
 names = ("confirm_january", "confirm_july")

@@ -6,10 +6,14 @@ projection. Do NOT fit a rollout climatology or trend, remove the ensemble
 mean, or rescale the amplitude. The first five years remain visible.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import json
-import sys
 
 import matplotlib
 
@@ -34,7 +38,7 @@ p.add_argument(
 args = p.parse_args()
 root = args.directory
 record = json.loads((root / "configuration.json").read_text())
-cache = torch.load(
+cache = load_checkpoint(
     Path(record["checkpoint"]).parent / "latents.pt",
     map_location="cpu",
     weights_only=False,

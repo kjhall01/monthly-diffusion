@@ -5,7 +5,7 @@ import torch
 
 from test_gaussian_forecast import ToyModel
 
-from monthly_diffusion.experiments import compare_noise_initialization_rollouts as audit
+from workflows.experiments import compare_noise_initialization_rollouts as audit
 
 
 def test_paired_noise_current_previous_and_exact_resume(tmp_path):

@@ -4,7 +4,7 @@ import torch
 import xarray as xr
 from test_gaussian_forecast import ToyModel
 
-from monthly_diffusion.experiments import diagnose_enso_initialization as diagnostic
+from workflows.experiments import diagnose_enso_initialization as diagnostic
 
 
 def test_readout_recovers_known_latent_index():

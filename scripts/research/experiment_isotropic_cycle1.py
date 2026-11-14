@@ -8,10 +8,13 @@ are read-only. No moments are fitted, no model trained, and no full fields saved
 Run: python scripts/research/experiment_isotropic_cycle1.py
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import hashlib
 import json
-import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -21,18 +24,10 @@ import matplotlib
 matplotlib.use("Agg")
 import torch
 
-from monthly_diffusion import MonthlyDiffusionV1
+from workflows.legacy_model import MonthlyDiffusionV1
 
 
-from monthly_diffusion.experiments.experiment_isotropic_cycle1 import (
-    OUTPUT,
-    ORIGINAL,
-    CHECKPOINT,
-    run_forecast,
-    assemble,
-    analyze,
-    render,
-)
+from workflows.experiments.experiment_isotropic_cycle1 import OUTPUT, ORIGINAL, CHECKPOINT, run_forecast, assemble, analyze, render
 
 stop_after_years = 30
 
@@ -80,7 +75,7 @@ if stop_after_years == 30:
     render(ds)
 sources = [
     Path(__file__),
-    ROOT / "monthly_diffusion/forecast.py",
+    ROOT / "workflows/forecast.py",
     ROOT / "scripts/research/diagnose_cycling_modes.py",
 ]
 (OUTPUT / "code_provenance.json").write_text(

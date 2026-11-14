@@ -6,18 +6,20 @@ import numpy as np
 import pytest
 import torch
 import xarray as xr
-from monthly_diffusion import (
+from monthly_diffusion.loading import (
     load_autoencoder,
     load_diffusion,
     load_models,
-    MonthlyDiffusionV1,
-    open_rollout,
+    load_model,
+    save_model,
 )
-from monthly_diffusion.data import sources
-from monthly_diffusion.run_files import file_digest, load_latents
-from monthly_diffusion.inference.reconstruction import open_reconstruction
-from monthly_diffusion.modules.autoencoder import MeshHierarchyAutoencoder
-from monthly_diffusion.components.coupled_latent_diffusion import CoupledLatentDiffusion
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.inference.archive import open_rollout
+from workflows.data import sources
+from workflows.run_files import file_digest, load_latents
+from workflows.inference.reconstruction import open_reconstruction
+from monthly_diffusion.autoencoder import Autoencoder
+from monthly_diffusion.diffusion import CoupledLatentDiffusion
 
 
 @pytest.fixture
@@ -34,11 +36,17 @@ def experiment(tiny_data, tmp_path, monkeypatch):
         sources, "open_canonical_state", lambda *args, **kwargs: (all_a, all_o, statics)
     )
     monkeypatch.setattr(sources, "open_co2", lambda *args, **kwargs: co2)
+    monkeypatch.setattr(
+        sources,
+        "open_state_dataset",
+        lambda *args, **kwargs: xr.merge([all_a, all_o, statics], join="exact"),
+    )
     params = dict(
         RUN_DIR=tmp_path / "run",
         DEVICE="cpu",
         THREADS=1,
         WIDTH=8,
+        LATENT_CHANNELS=4,
         MESH_LEVELS=(1, 0),
         REFINERS=(1, 1),
         EPOCHS=1,
@@ -50,7 +58,10 @@ def unexpected_network(*args, **kwargs):
     raise AssertionError("This script must not construct this network")
 
 
-def test_seven_scripts_and_component_loading(experiment, run_script, monkeypatch):
+@pytest.mark.parametrize("atmosphere_centering", ["annual_zonal", "gridpoint"])
+def test_seven_scripts_and_component_loading(
+    experiment, run_script, monkeypatch, atmosphere_centering
+):
     a, o, co2, config, params = experiment
     run = params["RUN_DIR"]
     with monkeypatch.context() as isolated:
@@ -59,10 +70,15 @@ def test_seven_scripts_and_component_loading(experiment, run_script, monkeypatch
             "train_atmosphere_autoencoder",
             **params,
             SPECIFICATIONS=[config.variables[0]],
+            CENTERING=atmosphere_centering,
+            MASK_CONSTANT_CELLS=atmosphere_centering == "gridpoint",
         )
     assert not (run / "ocean").exists() and not (run / "diffusion").exists()
-    network, info = load_autoencoder(run, "atmosphere", device="cpu")
-    assert isinstance(network, MeshHierarchyAutoencoder)
+    network, info = load_autoencoder(
+        run, "atmosphere", device="cpu", return_metadata=True
+    )
+    assert isinstance(network, Autoencoder)
+    assert network.preprocessor.centering == atmosphere_centering
     assert [v.name for v in info["preprocessor"].variables] == ["t2m"]
     assert not hasattr(MonthlyDiffusionV1, "train")
     before = file_digest(run / "atmosphere/model.pt")
@@ -78,6 +94,7 @@ def test_seven_scripts_and_component_loading(experiment, run_script, monkeypatch
     run_script(
         "generate_ae_reconstruction",
         RUN_DIR=run,
+        OUTPUT=run / "ae_reconstruction",
         DEVICE="cpu",
         THREADS=1,
         START="1966-01",
@@ -105,7 +122,7 @@ def test_seven_scripts_and_component_loading(experiment, run_script, monkeypatch
         for p in (run / c).glob("*.pt")
     }
     with monkeypatch.context() as isolated:
-        isolated.setattr(MeshHierarchyAutoencoder, "__init__", unexpected_network)
+        isolated.setattr(Autoencoder, "__init__", unexpected_network)
         run_script(
             "train_latent_diffusion",
             RUN_DIR=run,
@@ -118,13 +135,14 @@ def test_seven_scripts_and_component_loading(experiment, run_script, monkeypatch
             TIME_EMBEDDING_CHANNELS=8,
         )
     assert all(file_digest(p) == digest for p, digest in fingerprints.items())
-    transition, _ = load_diffusion(run, device="cpu")
-    assert transition.config.ocean_latent_channels == 6
+    transition, _ = load_diffusion(run, device="cpu", return_metadata=True)
+    assert transition.ocean_latent_channels == 6
     trained = load_models(run, device="cpu")
     # Adding diffusion does not invalidate an existing reconstruction archive.
     run_script(
         "generate_ae_reconstruction",
         RUN_DIR=run,
+        OUTPUT=run / "ae_reconstruction",
         DEVICE="cpu",
         THREADS=1,
         START="1966-01",
@@ -133,6 +151,22 @@ def test_seven_scripts_and_component_loading(experiment, run_script, monkeypatch
     )
     assert first.stat().st_mtime_ns == modified
     trained.save(run / "export.pt")
+    # The package loader retains fitted transforms, scaler and inference numerics.
+    exported = load_model(run / "export.pt", device="cpu")
+    expected_forecast = trained.rollout(
+        co2=330, gaussian_start="1966-01", months=2, members=2
+    )
+    xr.testing.assert_identical(
+        exported.rollout(co2=330, gaussian_start="1966-01", months=2, members=2),
+        expected_forecast,
+    )
+    save_model(trained.transition, run / "diffusion-export.pt")
+    diffusion_copy = load_diffusion(run / "diffusion-export.pt", device="cpu")
+    assert not any(p.requires_grad for p in diffusion_copy.parameters())
+    for key, value in trained.transition.state_dict().items():
+        torch.testing.assert_close(
+            diffusion_copy.state_dict()[key], value, atol=0, rtol=0
+        )
     restored = MonthlyDiffusionV1.load(run / "export.pt", device="cpu")
     assert restored.weight_digest() == trained.weight_digest()
     for actual, expected_latent in zip(restored.encode(a, o, co2=co2), latents):
@@ -184,6 +218,7 @@ def test_seven_scripts_and_component_loading(experiment, run_script, monkeypatch
         MONTHS=24,
         MEMBERS=2,
         START="1966-01",
+        INITIALIZATION="stochastic",  # fixture has no observed history before 1966
     )
     monkeypatch.setattr(
         sources, "open_canonical_state", lambda *args, **kwargs: (a, o, info["statics"])
@@ -195,6 +230,8 @@ def test_seven_scripts_and_component_loading(experiment, run_script, monkeypatch
         run_script(
             name,
             RUN_DIR=run,
+            INPUT=run / ("ae_reconstruction" if kind == "ae" else "ar_rollout"),
+            OUTPUT=run / f"analysis/{kind}",
             BASELINE=(1966, 1967),
             EARLY=(1966, 1966),
             LATE=(1967, 1967),
@@ -215,7 +252,12 @@ def test_component_resume_preserves_optimizer_ema_rng_and_cache(
         params["RUN_DIR"].parent / "complete",
         params["RUN_DIR"].parent / "resumed",
     )
-    overrides = {**params, "EPOCHS": 2, "SPECIFICATIONS": [config.variables[0]]}
+    overrides = {
+        **params,
+        "EPOCHS": 2,
+        "SPECIFICATIONS": [config.variables[0]],
+        "CONDITION_ON_CO2": False,  # later verify that switching CO2 on rejects resume
+    }
     run_script("train_atmosphere_autoencoder", **{**overrides, "RUN_DIR": complete})
     original = checkpoints.atomic_save
 
@@ -230,12 +272,29 @@ def test_component_resume_preserves_optimizer_ema_rng_and_cache(
             run_script(
                 "train_atmosphere_autoencoder", **{**overrides, "RUN_DIR": resumed}
             )
+    # An older objective cannot reuse its best loss/patience under equal-variable
+    # averaging. Verify the check before resuming the unchanged new objective.
+    latest = resumed / "atmosphere/latest.pt"
+    saved = checkpoints.load_checkpoint(latest)
+    old_objective = dict(saved, settings=dict(saved["settings"]))
+    del old_objective["settings"]["reconstruction_loss"]
+    checkpoints.atomic_save(old_objective, latest)
+    with pytest.raises(ValueError, match="reconstruction_loss"):
+        run_script(
+            "train_atmosphere_autoencoder",
+            **{**overrides, "RUN_DIR": resumed, "RESUME": True},
+        )
+    checkpoints.atomic_save(saved, latest)
     run_script(
         "train_atmosphere_autoencoder",
         **{**overrides, "RUN_DIR": resumed, "RESUME": True},
     )
-    whole, _ = load_autoencoder(complete, "atmosphere", device="cpu")
-    resumed_ae, _ = load_autoencoder(resumed, "atmosphere", device="cpu")
+    whole, _ = load_autoencoder(
+        complete, "atmosphere", device="cpu", return_metadata=True
+    )
+    resumed_ae, _ = load_autoencoder(
+        resumed, "atmosphere", device="cpu", return_metadata=True
+    )
     for name, value in whole.state_dict().items():
         torch.testing.assert_close(value, resumed_ae.state_dict()[name], rtol=0, atol=0)
     for split in ("training", "validation"):
@@ -246,15 +305,48 @@ def test_component_resume_preserves_optimizer_ema_rng_and_cache(
             atol=0,
         )
     fingerprint = file_digest(resumed / "atmosphere/model.pt")
+    # A pre-fix run must not silently resume with the new transfer/readout path.
+    setup_path = resumed / "atmosphere/setup.pt"
+    setup_bytes = setup_path.read_bytes()
+    setup = checkpoints.load_checkpoint(setup_path)
+    old_setup = dict(setup, parameters=dict(setup["parameters"]))
+    old_setup["parameters"].pop("residual_film_only")
+    checkpoints.atomic_save(old_setup, setup_path)
+    with pytest.raises(ValueError, match="architecture changed"):
+        run_script(
+            "train_atmosphere_autoencoder",
+            **{**overrides, "RUN_DIR": resumed, "RESUME": True},
+        )
+    setup_path.write_bytes(setup_bytes)  # keep the selected checkpoint's file digest
     run_script(
         "train_atmosphere_autoencoder",
         **{**overrides, "RUN_DIR": resumed, "RESUME": True},
     )
     assert fingerprint == file_digest(resumed / "atmosphere/model.pt")
-    with pytest.raises(ValueError, match="settings changed"):
+    for changed in (
+        dict(CENTERING="annual_zonal"),
+        dict(GRIDPOINT_STD_FLOOR=0.1),
+        dict(MASK_CONSTANT_CELLS=False),
+    ):
+        with pytest.raises(ValueError, match="preprocessing changed"):
+            run_script(
+                "train_atmosphere_autoencoder",
+                **{**overrides, "RUN_DIR": resumed, "RESUME": True, **changed},
+            )
+    with pytest.raises(ValueError, match="architecture changed"):
         run_script(
             "train_atmosphere_autoencoder",
             **{**overrides, "RUN_DIR": resumed, "WIDTH": 12, "RESUME": True},
+        )
+    with pytest.raises(ValueError, match="architecture changed"):
+        run_script(
+            "train_atmosphere_autoencoder",
+            **{
+                **overrides,
+                "RUN_DIR": resumed,
+                "CONDITION_ON_CO2": True,
+                "RESUME": True,
+            },
         )
 
 
@@ -269,7 +361,7 @@ def test_main_scripts_show_training_and_have_no_cli_or_config_dispatch():
         ), path
         for removed in (
             "argparse",
-            "ModelConfig",
+            "ModelSettings",
             "TrainingConfig",
             "train_autoencoder(",
             "train_coupled_diffusion(",
@@ -277,7 +369,12 @@ def test_main_scripts_show_training_and_have_no_cli_or_config_dispatch():
             assert removed not in source, (path, removed)
         if path.name.startswith("train_"):
             assert "torch.optim.AdamW(" in source
-            assert "loss.backward()" in source or 'terms["loss"].backward()' in source
+            assert any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "backward"
+                for node in ast.walk(tree)
+            ), path
             assert "for epoch in range(" in source
 
 
@@ -317,8 +414,8 @@ def test_diffusion_resume_and_changed_ae_detection(experiment, run_script, monke
         with pytest.raises(RuntimeError, match="interrupted diffusion"):
             run_script("train_latent_diffusion", RUN_DIR=resumed, **diffusion)
     run_script("train_latent_diffusion", RUN_DIR=resumed, RESUME=True, **diffusion)
-    expected, _ = load_diffusion(whole, device="cpu")
-    actual, _ = load_diffusion(resumed, device="cpu")
+    expected, _ = load_diffusion(whole, device="cpu", return_metadata=True)
+    actual, _ = load_diffusion(resumed, device="cpu", return_metadata=True)
     for name, value in expected.state_dict().items():
         torch.testing.assert_close(value, actual.state_dict()[name], rtol=0, atol=0)
     checkpoint = resumed / "ocean/model.pt"
@@ -329,3 +426,87 @@ def test_diffusion_resume_and_changed_ae_detection(experiment, run_script, monke
         load_diffusion(resumed, device="cpu")
     with pytest.raises(ValueError, match="different AE"):
         load_latents(resumed, "ocean")
+
+
+@pytest.mark.parametrize("phase", ["training", "validation"])
+def test_time_limits_export_best_models_and_feed_the_next_stage(
+    experiment, run_script, monkeypatch, phase
+):
+    from monthly_diffusion.checkpoints import load_checkpoint
+    from workflows.training import losses, time_limit
+
+    _, _, _, config, params = experiment
+    run = params["RUN_DIR"]
+    for component in ("atmosphere", "ocean", "diffusion"):
+        directory = run / component
+        expired = False
+        loss_name = "rollout_loss" if component == "diffusion" else "reconstruction_mse"
+        original_loss = getattr(losses, loss_name)
+
+        def loss_then_expire(*args, **kwargs):
+            nonlocal expired
+            # Expire during epoch 2, after a complete epoch is safely saved.
+            if (directory / "latest.pt").exists() and (
+                torch.is_grad_enabled() == (phase == "training")
+            ):
+                expired = True
+            return original_loss(*args, **kwargs)
+
+        with monkeypatch.context() as limited:
+            limited.setattr(
+                time_limit, "perf_counter", lambda: float("inf") if expired else 0.0
+            )
+            limited.setattr(losses, loss_name, loss_then_expire)
+            if component == "diffusion":
+                run_script(
+                    "train_latent_diffusion",
+                    RUN_DIR=run,
+                    DEVICE="cpu",
+                    THREADS=1,
+                    EPOCHS=3,
+                    BATCH_SIZE=4,
+                    WIDTH=8,
+                    DEPTH=1,
+                    HEADS=2,
+                    TIME_EMBEDDING_CHANNELS=8,
+                )
+            else:
+                run_script(
+                    f"train_{component}_autoencoder",
+                    **{**params, "EPOCHS": 3, "BATCH_SIZE": 4},
+                    SPECIFICATIONS=[
+                        v for v in config.variables if v.component == component
+                    ],
+                    CONDITION_ON_CO2=False,  # this fixture exercises CO2-free export
+                )
+        assert expired
+        latest = load_checkpoint(directory / "latest.pt")
+        selected = load_checkpoint(directory / "model.pt")
+        assert latest["epoch"] == selected["epoch"] == 1
+        assert len(latest["history"]) == 1  # partial epochs never enter the history
+        if component != "diffusion":
+            assert selected["parameters"]["condition_on_co2"] is False
+            assert (directory / "autoencoder.pt").exists()
+            cache = load_latents(run, component)
+            assert torch.isfinite(cache["training"]).all()
+            restored = load_autoencoder(run, component, device="cpu")
+            assert all(not film.include_co2 for film in restored.encoder.film)
+    # All three selections and both caches belong to one usable emulator.
+    model = load_models(run, device="cpu")
+    assert model.transition is not None
+
+
+def test_time_limit_without_a_validated_epoch_fails_clearly(
+    experiment, run_script, monkeypatch
+):
+    from workflows.training import time_limit
+
+    _, _, _, config, params = experiment
+    monkeypatch.setattr(time_limit, "perf_counter", lambda: float("inf"))
+    with pytest.raises(RuntimeError, match="before any epoch finished validation"):
+        run_script(
+            "train_atmosphere_autoencoder",
+            **params,
+            SPECIFICATIONS=[config.variables[0]],
+        )
+    assert not (params["RUN_DIR"] / "atmosphere/model.pt").exists()

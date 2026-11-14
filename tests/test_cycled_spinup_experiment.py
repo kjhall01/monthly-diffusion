@@ -4,7 +4,7 @@ import torch
 import xarray as xr
 from test_cycled_initialization import CycleModel
 
-from monthly_diffusion.experiments import experiment_cycled_spinup as experiment
+from workflows.experiments import experiment_cycled_spinup as experiment
 
 
 def test_paired_switch_off_and_resume(tmp_path,monkeypatch):

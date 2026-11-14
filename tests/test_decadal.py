@@ -3,10 +3,7 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from monthly_diffusion.analysis.decadal import (
-    wet_coarsen, lanczos_weights, lowpass_annual, variability_fields,
-    fit_covariance_eofs, project_eofs, match_eofs, pc_diagnostics, extract_annual_sst,
-)
+from workflows.analysis.decadal import wet_coarsen, lanczos_weights, lowpass_annual, variability_fields, fit_covariance_eofs, project_eofs, match_eofs, pc_diagnostics, extract_annual_sst
 
 
 def field(values, years=None):

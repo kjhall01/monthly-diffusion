@@ -1,47 +1,47 @@
 """Generate a resumable physical trajectory from the selected production models."""
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
-from monthly_diffusion.run_files import check_script_arguments
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from workflows.run_files import check_script_arguments
 import numpy as np
 import torch
 import xarray as xr
-from monthly_diffusion.model_loading import load_models
-from monthly_diffusion.run_files import read_run
-from monthly_diffusion.data.dataloader import co2_values
-from monthly_diffusion.data.sources import (
-    open_canonical_state,
-    open_co2,
-    hold_first_co2_back_to,
-)
-from monthly_diffusion.inference.forecast import Forecast
-from monthly_diffusion.inference.metadata import forecast_metadata
-from monthly_diffusion.inference.archive import prepare_archive, write_month
-from monthly_diffusion.inference.spinup import spin_up
+from monthly_diffusion.loading import load_models
+from workflows.data.dataloader import co2_values
+from workflows.data.run_data import load_reference_data, load_run_co2
+from workflows.data.sources import hold_first_co2_back_to
+from monthly_diffusion.rollout import Forecast
+from workflows.inference.metadata import forecast_metadata
+from workflows.inference.archive import prepare_archive, write_month
+from workflows.inference.spinup import spin_up
 
 check_script_arguments()
 
-RUN_DIR = Path("runs/production")
+RUN_DIR = Path(__file__).resolve().parent / "runs/test_gridpoint_no_co2"
 OUTPUT = RUN_DIR / "ar_rollout"
-START = "1850-01"  # first generated month, including any discarded spin-up
+START = "1851-01"  # first generated month, including any discarded spin-up
 MONTHS = 3012  # number of saved months; 1850--2100 with no spin-up
 MEMBERS = 5
-INITIALIZATION = "stochastic"  # stochastic, encoded_noise, gaussian, or observed
+GUIDANCE_SCALE = 1.0  # 0: CO2-dropped branch; 1: ordinary conditional; >1: CFG
+INITIALIZATION = "observed"  # stochastic, encoded_noise, gaussian, or observed
 SPINUP_MONTHS = 0
 SAVE_SPINUP_LATENTS = False
 CONSTANT_CO2 = None  # e.g. 284.27 for a constant-forcing experiment
 CONSTANT_INITIAL_CO2 = (
     False  # retain observed history forcing; hold the future constant
 )
-HOLD_FIRST_CO2_BACK_TO = "1849-11"  # prescribed prefix if the source starts in 1850
+HOLD_FIRST_CO2_BACK_TO = "1850-11"  # prescribed prefix if the source starts in 1850
 RESUME = False
 EXTEND = False
 SEED = 20260716
 DEVICE = (
     "mps"
     if torch.backends.mps.is_available()
-    else "cuda"
-    if torch.cuda.is_available()
-    else "cpu"
+    else "cuda" if torch.cuda.is_available() else "cpu"
 )
 THREADS = 4
 
@@ -56,12 +56,7 @@ if SAVE_SPINUP_LATENTS and not SPINUP_MONTHS:
 if CONSTANT_INITIAL_CO2 and CONSTANT_CO2 is not None:
     raise ValueError("Choose only one constant-forcing option")
 torch.set_num_threads(THREADS)
-source = read_run(RUN_DIR)["source"]
-co2 = (
-    CONSTANT_CO2
-    if CONSTANT_CO2 is not None
-    else open_co2(source["co2_netcdf"], expected_sha256=source.get("co2_sha256"))
-)
+co2 = CONSTANT_CO2 if CONSTANT_CO2 is not None else load_run_co2(RUN_DIR)
 if (
     CONSTANT_CO2 is None
     and HOLD_FIRST_CO2_BACK_TO
@@ -74,9 +69,7 @@ if (
 
 atmosphere, ocean = None, None
 if INITIALIZATION == "observed":
-    atmosphere, ocean, _ = open_canonical_state(
-        source["state_zarr"], expected_attrs=source.get("expected_attrs")
-    )
+    atmosphere, ocean, _ = load_reference_data(RUN_DIR)
     history_months = [
         str(np.datetime64(START, "M") - np.timedelta64(k, "M")) for k in (2, 1)
     ]
@@ -108,6 +101,7 @@ forecast = Forecast(
     co2=co2,
     members=MEMBERS,
     seed=SEED,
+    guidance_scale=GUIDANCE_SCALE,
     gaussian_start=START if INITIALIZATION == "gaussian" else None,
     encoded_noise_start=START if INITIALIZATION == "encoded_noise" else None,
     stochastic_start=START if INITIALIZATION == "stochastic" else None,
@@ -148,6 +142,8 @@ for step in range(forecast.step, SPINUP_MONTHS + MONTHS):
         initialization_time=metadata["initialization_time"],
         history_order="current, previous",
     )
+    if model.transition.condition_on_co2:
+        fields.attrs["guidance_scale"] = GUIDANCE_SCALE
     write_month(fields, forecast, OUTPUT, spinup_months=SPINUP_MONTHS)
     saved_months = forecast.step - SPINUP_MONTHS
     if saved_months % 12 == 0 or saved_months == MONTHS:

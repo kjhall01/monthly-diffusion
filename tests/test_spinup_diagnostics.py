@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import pytest
 
-from monthly_diffusion.experiments import diagnose_spinup_latents as analysis
+from workflows.experiments import diagnose_spinup_latents as analysis
 
 
 def test_fixed_climatology_preserves_offset_and_drift():

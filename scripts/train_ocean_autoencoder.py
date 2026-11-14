@@ -1,71 +1,227 @@
-"""Train the ocean autoencoder. Edit the values below, then run this file."""
+"""Train the ocean autoencoder. Edit the values below and run this file."""
 
+import sys
+from dataclasses import replace
 from pathlib import Path
-from monthly_diffusion.run_files import check_script_arguments
 from time import perf_counter
 import random
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from monthly_diffusion.modules.autoencoder import (
-    MeshHierarchyAutoencoder,
-    reconstruction_mse,
-)
-from monthly_diffusion.modules.mesh import (
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from monthly_diffusion.autoencoder import Autoencoder
+from monthly_diffusion.mesh import (
     make_equiangular_grid_from_xarray,
-    build_mesh_hierarchy_context,
+    build_mesh_hierarchy,
 )
-from monthly_diffusion.data.configs import mdv1_variables
-from monthly_diffusion.data.preprocessing import Preprocessor, LatentNormalizer
-from monthly_diffusion.data.dataloader import ComponentStates, co2_values
-from monthly_diffusion.data.sources import open_canonical_state, open_co2
-from monthly_diffusion.inference.moments import component_moments
-from monthly_diffusion.training.ema import EMA
-from monthly_diffusion.training.checks import (
-    check_component_data,
-    check_resume_settings,
+from monthly_diffusion.rollout import fixed_rng
+from workflows.run_files import check_script_arguments, run_inputs
+from monthly_diffusion.checkpoints import load_latents
+from workflows.data.sources import open_state_dataset, static_fields, open_co2
+from monthly_diffusion.preprocessing import select_variables
+from monthly_diffusion.preprocessing import (
+    Preprocessor,
+    validate_fields,
+    validate_units,
 )
-from monthly_diffusion.checkpoints import atomic_save
-from monthly_diffusion.random_state import rng_state, restore_rng, fixed_rng
-from monthly_diffusion.run_files import (
-    read_run,
-    file_digest,
-    save_history,
-    save_selection,
-    load_latents,
+from workflows.data.dataloader import ComponentStates
+from monthly_diffusion.rollout import co2_values
+from workflows.training.ema import EMA
+from workflows.training.time_limit import TrainingTimeLimit, check_time_limit
+from workflows.training.logging import training_logger
+from workflows.training.losses import reconstruction_mse
+from workflows.training.files import (
+    load_preprocessor,
+    save_autoencoder_setup,
+    load_training_progress,
+    save_best_weights,
+    save_training_progress,
+    add_autoencoder_history,
+    select_best_weights,
+    save_latent_cache,
 )
 
-# Use this SAME directory in every script belonging to this experiment.
 check_script_arguments()
 
-RUN_DIR = Path("runs/production")
+# Resolve beside this script, regardless of the shell's working directory.
+RUN_DIR = Path(__file__).resolve().parent / "runs/test_gridpoint_log1p_mtpr_masked"
+TIME_LIMIT_HOURS = 4.0
+if not 0 < TIME_LIMIT_HOURS < float("inf"):
+    raise ValueError("TIME_LIMIT_HOURS must be positive and finite")
+# Count setup and training; allow the final model/cache export to finish.
+deadline = perf_counter() + TIME_LIMIT_HOURS * 3600
 COMPONENT = "ocean"
+
+# Select physical fields here, in their input/output channel order.
+VARIABLES = [
+    "sst",
+    "ssh",
+    "sss",
+    "mld",
+    "sic",
+    "sivol",
+    "d20",
+    "ohc300",
+    "ohc700_minus_ohc300",
+]
+# Normalize physical values directly: no logit or inverse-softplus transforms.
+SPECIFICATIONS = [
+    replace(variable, transform="identity", scale=1.0)
+    for variable in select_variables(VARIABLES, COMPONENT)
+]
 RESUME = False
 DEVICE = (
     "mps"
     if torch.backends.mps.is_available()
-    else "cuda"
-    if torch.cuda.is_available()
-    else "cpu"
+    else "cuda" if torch.cuda.is_available() else "cpu"
 )
 THREADS = 4
-LOAD_IN_MEMORY = False
+LOAD_IN_MEMORY = True
 
-# Network and preprocessing. These are passed directly to the actual AE below.
-WIDTH = 102
-LATENT_CHANNELS = 4
+SEED = 20260716
+
+# Reuse the recorded paths/splits; these values can also be written explicitly.
+DATA, CO2, TRAIN_PERIOD, VALIDATION_PERIOD = run_inputs(RUN_DIR)
+
+# Open the Dataset here; select the variables and periods below.
+dataset = open_state_dataset(DATA)  # or xr.open_zarr(DATA) for already-canonical fields
+fields = dataset[[variable.name for variable in SPECIFICATIONS]]
+statics = static_fields(dataset)
+co2 = open_co2(CO2)
+validate_units(fields, SPECIFICATIONS)
+training_fields = fields.sel(time=TRAIN_PERIOD)
+validation_fields = fields.sel(time=VALIDATION_PERIOD)
+for split in (training_fields, validation_fields):
+    validate_fields(split, [variable.name for variable in SPECIFICATIONS], statics)
+if LOAD_IN_MEMORY:
+    training_fields.load()
+    validation_fields.load()
+directory = RUN_DIR / COMPONENT
+directory.mkdir(parents=True, exist_ok=True)
+logger = training_logger(directory)
+model_path = directory / "model.pt"
+if model_path.exists() and not RESUME:
+    raise FileExistsError("Selected AE exists; choose a new RUN_DIR or set RESUME=True")
+torch.set_num_threads(THREADS)
+device = torch.device(DEVICE)
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+random.seed(SEED)
+
+# Match the test_gridpoint atmosphere autoencoder's architecture.
+WIDTH = 64
+LATENT_CHANNELS = 32
+REFINER_MLP_RATIO = 2  # channel mixing after every spatial refinement
 MESH_LEVELS = (4, 3, 2)
-REFINERS = (6, 6, 4)
+REFINERS = (4, 6, 6)
 ROTATION = (17, 23, 11)
-CO2_FILM_LEVELS = ()  # empty means all levels
-CENTERING = "annual_zonal"
+CONDITION_ON_CO2 = True  # actual CO2 in both encoder and decoder, without jitter
+CO2_FILM_LEVELS = ()  # used only when CONDITION_ON_CO2=True; empty means all levels
+MASK_AWARE = True
+
+# Fit normalization once, using training data only. Reuse it when resuming.
+# "gridpoint": local time mean/std. "annual_zonal": zonal mean + pooled std.
+CENTERING = "gridpoint"
+# Minimum local std as a fraction of the variable's typical temporal std.
+GRIDPOINT_STD_FLOOR = 0.05
+# Exclude cells constant over the whole training period, before the std floor.
+# Constant SIC=1 remains valid. Seasonal zeros remain valid wherever values vary.
+MASK_CONSTANT_CELLS = True
 OCEAN_SUPPORT = (
     "per_variable"  # "sst" applies one training-SST support to all ocean fields
 )
-MASK_AWARE = False
-SPECIFICATIONS = [v for v in mdv1_variables() if v.component == COMPONENT]
+if (directory / "setup.pt").exists():
+    preprocessor = load_preprocessor(directory)
+    if (
+        preprocessor.variables != SPECIFICATIONS
+        or preprocessor.centering != CENTERING
+        or preprocessor.ocean_support != OCEAN_SUPPORT
+        or getattr(preprocessor, "mask_constant_cells", False) != MASK_CONSTANT_CELLS
+        or (
+            CENTERING == "gridpoint"
+            and preprocessor.gridpoint_std_floor != GRIDPOINT_STD_FLOOR
+        )
+    ):
+        raise ValueError("Variables or preprocessing changed; choose a new run")
+else:
+    preprocessor = Preprocessor(
+        SPECIFICATIONS,
+        centering=CENTERING,
+        ocean_support=OCEAN_SUPPORT,
+        gridpoint_std_floor=GRIDPOINT_STD_FLOOR,
+        mask_constant_cells=MASK_CONSTANT_CELLS,
+    )
+    preprocessor.fit_component(
+        training_fields, COMPONENT, statics, co2_values(co2, training_fields.time)
+    )
 
-BATCH_SIZE = 4
+# Give the network fixed, normalized geography; it pools these fields just once.
+# New AEs use any-wet support on the first mesh and preserve wet-node skips.
+# This is saved with the architecture; use a fresh run for the corrected masks.
+grid = make_equiangular_grid_from_xarray(statics.lat, statics.lon, name="grid")
+geometry = build_mesh_hierarchy(
+    nlat=len(statics.lat),
+    nlon=len(statics.lon),
+    grid=grid,
+    mesh_levels=MESH_LEVELS,
+    rotation_degrees=ROTATION,
+)
+autoencoder = Autoencoder(
+    channels=len(SPECIFICATIONS),
+    geometry=geometry,
+    statics=preprocessor.static_tensor(statics),
+    preprocessor=preprocessor,
+    grid_shape=(len(statics.lat), len(statics.lon)),
+    width=WIDTH,
+    latent_channels=LATENT_CHANNELS,
+    refiners=REFINERS,
+    co2_film_levels=CO2_FILM_LEVELS,
+    condition_on_co2=CONDITION_ON_CO2,
+    mask_aware=MASK_AWARE,
+    refiner_mlp_ratio=REFINER_MLP_RATIO,
+    mask_policy="support",  # corrected wet-node masks and residual paths
+).to(device)
+print(f"{COMPONENT}: {sum(p.numel() for p in autoencoder.parameters()):,} parameters")
+logger.info(
+    "CO2 conditioning: %s | training time limit: %g hours",
+    CONDITION_ON_CO2,
+    TIME_LIMIT_HOURS,
+)
+logger.info(
+    "Preprocessing: %s | variable transforms: %s",
+    CENTERING,
+    ", ".join(f"{v.name}={v.transform}" for v in SPECIFICATIONS),
+)
+
+if MASK_CONSTANT_CELLS:
+    for variable in SPECIFICATIONS:
+        stats = preprocessor.stats[variable.name]
+        logger.info(
+            "%s mask: %d learning cells; %d constant cells restored on decode",
+            variable.name,
+            int(stats["mask"].sum()),
+            int(stats["constant_mask"].sum()),
+        )
+
+save_autoencoder_setup(
+    directory,
+    autoencoder,
+    preprocessor,
+    statics,
+    training_fields,
+    validation_fields,
+    co2,
+)
+latitudes = torch.tensor(statics.lat.values, dtype=torch.float32, device=device)
+training_data = ComponentStates(
+    training_fields, COMPONENT, autoencoder.preprocessor, co2
+)
+validation_data = ComponentStates(
+    validation_fields, COMPONENT, autoencoder.preprocessor, co2
+)
+# Training controls are ordinary values used by the loop below.
+BATCH_SIZE = 16
 EPOCHS = 1000
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-4
@@ -73,129 +229,12 @@ OPTIMIZER_EPS = 1e-6
 EMA_DECAY = 0.995
 PATIENCE = 5
 MIN_DELTA = 1e-4
-SEED = 20260716
 VALIDATION_SEED = 271828
 
-# Reuse the source and time periods recorded by atmosphere training.
-run = read_run(RUN_DIR)
-
-# Read the pinned source and only transform this component's variables.
-source = run["source"]
-_, fields, statics = open_canonical_state(
-    source["state_zarr"], expected_attrs=source.get("expected_attrs")
-)
-co2 = open_co2(source["co2_netcdf"], expected_sha256=source.get("co2_sha256"))
-training_fields = fields.sel(time=slice(*run["training_period"]))
-validation_fields = fields.sel(time=slice(*run["validation_period"]))
-statics = statics[["phi_s", "lsm"]].transpose("lat", "lon").load()
-if LOAD_IN_MEMORY:
-    training_fields.load()
-    validation_fields.load()
-
-# One self-contained component directory; no other networks are constructed.
-directory = RUN_DIR / COMPONENT
-directory.mkdir(parents=True, exist_ok=True)
-model_path, setup_path = directory / "model.pt", directory / "setup.pt"
-if model_path.exists() and not RESUME:
-    raise FileExistsError(
-        f"{model_path} already exists; set RESUME=True or choose a new RUN_DIR"
-    )
-parameters = dict(
-    width=WIDTH,
-    latent_channels=LATENT_CHANNELS,
-    mesh_levels=MESH_LEVELS,
-    refiners=REFINERS,
-    rotation=ROTATION,
-    co2_film_levels=CO2_FILM_LEVELS,
-    mask_aware=MASK_AWARE,
-)
-settings = dict(
-    batch_size=BATCH_SIZE,
-    epochs=EPOCHS,
-    learning_rate=LEARNING_RATE,
-    weight_decay=WEIGHT_DECAY,
-    optimizer_eps=OPTIMIZER_EPS,
-    ema_decay=EMA_DECAY,
-    patience=PATIENCE,
-    min_delta=MIN_DELTA,
-    seed=SEED,
-    validation_seed=VALIDATION_SEED,
-)
 if min(BATCH_SIZE, EPOCHS, PATIENCE, THREADS) < 1:
     raise ValueError("Batch size, epochs, patience and threads must be positive")
-torch.set_num_threads(THREADS)
-device = torch.device(DEVICE)
-torch.manual_seed(SEED)
-np.random.seed(SEED)
-random.seed(SEED)
-
-if setup_path.exists():
-    setup = torch.load(setup_path, map_location="cpu", weights_only=False)
-    check_component_data(
-        training_fields, validation_fields, statics, SPECIFICATIONS, co2, setup
-    )
-    preprocessor = setup["preprocessor"]
-    if (
-        setup["parameters"] != parameters
-        or preprocessor.centering != CENTERING
-        or preprocessor.ocean_support != OCEAN_SUPPORT
-    ):
-        raise ValueError("AE or preprocessing settings changed; choose a new run")
-else:
-    check_component_data(
-        training_fields, validation_fields, statics, SPECIFICATIONS, co2
-    )
-    preprocessor = Preprocessor(
-        SPECIFICATIONS, centering=CENTERING, ocean_support=OCEAN_SUPPORT
-    )
-    preprocessor.fit_component(
-        training_fields, COMPONENT, statics, co2_values(co2, training_fields.time)
-    )
-    setup = dict(
-        parameters=parameters,
-        preprocessor=preprocessor,
-        statics=statics,
-        validation_times=validation_fields.time.values,
-        validation_co2=co2_values(co2, validation_fields.time),
-        validation_attrs=dict(validation_fields.attrs),
-        initialization_moments=component_moments(
-            preprocessor, training_fields, COMPONENT
-        ),
-    )
-    atomic_save(setup, setup_path)
-setup_digest = file_digest(setup_path)
-
-grid = make_equiangular_grid_from_xarray(statics.lat, statics.lon, name="grid")
-geometry = build_mesh_hierarchy_context(
-    nlat=len(statics.lat),
-    nlon=len(statics.lon),
-    mesh_levels=MESH_LEVELS,
-    rotation_degrees=ROTATION,
-    grid=grid,
-)
-autoencoder = MeshHierarchyAutoencoder(
-    channels=len(SPECIFICATIONS),
-    geometry=geometry,
-    grid_shape=(len(statics.lat), len(statics.lon)),
-    width=WIDTH,
-    latent_channels=LATENT_CHANNELS,
-    mesh_levels=MESH_LEVELS,
-    refiners=REFINERS,
-    rotation=ROTATION,
-    co2_film_levels=CO2_FILM_LEVELS,
-    mask_aware=MASK_AWARE,
-).to(device)
-print(
-    f"{COMPONENT}: {sum(p.numel() for p in autoencoder.parameters()):,} parameters; saving to {directory}"
-)
-static_tensor = preprocessor.static_tensor(statics).to(device)[None]
-latitudes = torch.tensor(statics.lat.values, device=device)
-weights = torch.tensor([v.weight for v in SPECIFICATIONS], device=device)
-training_data = ComponentStates(training_fields, COMPONENT, preprocessor, co2)
-validation_data = ComponentStates(validation_fields, COMPONENT, preprocessor, co2)
 validation_loader = DataLoader(validation_data, batch_size=BATCH_SIZE, shuffle=False)
 
-# The optimizer, reconstruction loss, validation and selection are all here.
 optimizer = torch.optim.AdamW(
     autoencoder.parameters(),
     lr=LEARNING_RATE,
@@ -203,171 +242,195 @@ optimizer = torch.optim.AdamW(
     eps=OPTIMIZER_EPS,
 )
 ema = EMA(autoencoder, EMA_DECAY)
-# Separate weight initialization from the training RNG, as in the original trainer.
+# Start the training random stream independently of network initialization.
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 random.seed(SEED)
-history, step, first_epoch, stale = [], 0, 1, 0
-best, patience_best = float("inf"), float("inf")
-latest_path = directory / "latest.pt"
-if latest_path.exists() and not model_path.exists():
-    if not RESUME:
-        raise FileExistsError("Interrupted training exists; set RESUME=True")
-    saved = torch.load(latest_path, map_location=device, weights_only=False)
-    check_resume_settings(saved["settings"], settings)
-    if saved["setup_digest"] != setup_digest:
-        raise ValueError("Preprocessing changed since the interrupted training")
-    autoencoder.load_state_dict(saved["model"])
-    optimizer.load_state_dict(saved["optimizer"])
-    ema.state = saved["ema"]
-    history, step, first_epoch, stale = (
-        saved["history"],
-        saved["step"],
-        saved["epoch"] + 1,
-        saved["stale"],
-    )
-    best, patience_best = saved["best"], saved["patience_best"]
-    restore_rng(saved["rng"])
+progress = load_training_progress(
+    directory,
+    autoencoder,
+    optimizer,
+    ema,
+    resume=RESUME,
+    batch_size=BATCH_SIZE,
+    epochs=EPOCHS,
+    patience=PATIENCE,
+    min_delta=MIN_DELTA,
+    seed=SEED,
+    validation_seeds=(VALIDATION_SEED,),
+)
+first_epoch = progress.epoch + 1
 if model_path.exists():
     print("Keeping the selected AE; checking its latent cache.")
     first_epoch = EPOCHS + 1
 
-for epoch in range(first_epoch, EPOCHS + 1):
-    if stale >= PATIENCE:
-        break
-    started = perf_counter()
-    autoencoder.train()
-    generator = torch.Generator().manual_seed(SEED + epoch)
-    training_loader = DataLoader(
-        training_data, batch_size=BATCH_SIZE, shuffle=True, generator=generator
-    )
-    train_sum, train_count = 0.0, 0
-    for batch in training_loader:
-        batch = {name: value.to(device) for name, value in batch.items()}
-        optimizer.zero_grad(set_to_none=True)
-        prediction, _ = autoencoder(
-            batch["state"],
-            static_tensor.expand(len(batch["state"]), -1, -1, -1),
-            batch["month"],
-            batch["co2"],
+try:
+    for epoch in range(first_epoch, EPOCHS + 1):
+        check_time_limit(deadline)
+        if progress.stale_epochs >= PATIENCE:
+            break
+        started = perf_counter()
+        autoencoder.train()
+        generator = torch.Generator().manual_seed(SEED + epoch)
+        training_loader = DataLoader(
+            training_data, batch_size=BATCH_SIZE, shuffle=True, generator=generator
         )
-        per_field = reconstruction_mse(prediction, batch["state"], latitudes)
-        loss = (per_field * weights).sum()
-        if not torch.isfinite(loss):
-            raise FloatingPointError("Nonfinite reconstruction loss")
-        loss.backward()
-        optimizer.step()
-        step += 1
-        ema.update(autoencoder, step)
-        train_sum += len(batch["state"]) * float(loss.detach())
-        train_count += len(batch["state"])
-
-    autoencoder.eval()
-    validation_sum, validation_count = 0.0, 0
-    with ema.applied(autoencoder), torch.no_grad(), fixed_rng(VALIDATION_SEED, device):
-        for batch in validation_loader:
-            batch = {name: value.to(device) for name, value in batch.items()}
-            prediction, _ = autoencoder(
-                batch["state"],
-                static_tensor.expand(len(batch["state"]), -1, -1, -1),
-                batch["month"],
-                batch["co2"],
+        train_sum, train_count = 0.0, 0
+        train_mse = torch.zeros(len(SPECIFICATIONS), dtype=torch.float64)
+        train_physical_mse = torch.zeros_like(train_mse)
+        for state, physical, month, co2_value in training_loader:
+            check_time_limit(deadline)
+            state = state.to(device)
+            month = month.to(device)
+            co2_value = co2_value.to(device)
+            optimizer.zero_grad(set_to_none=True)
+            prediction, latent = autoencoder(state, month, co2_value)
+            per_field = reconstruction_mse(prediction, state, latitudes)
+            # Each variable has unit-sum spatial weights; average variables equally.
+            loss = per_field.mean()
+            if not torch.isfinite(loss):
+                raise FloatingPointError("Nonfinite reconstruction loss")
+            loss.backward()
+            optimizer.step()
+            progress.optimizer_steps += 1
+            ema.update(autoencoder, progress.optimizer_steps)
+            train_sum += len(state) * float(loss.detach())
+            train_count += len(state)
+            # Undo centering/scaling AND nonlinear transforms before physical RMSE.
+            physical_mse = reconstruction_mse(
+                autoencoder.to_physical(prediction.detach()),
+                physical.to(device),
+                latitudes,
             )
-            per_field = reconstruction_mse(prediction, batch["state"], latitudes)
-            validation_sum += len(batch["state"]) * float((per_field * weights).sum())
-            validation_count += len(batch["state"])
-    score = validation_sum / validation_count
-    if not np.isfinite(score):
-        raise FloatingPointError("Nonfinite validation loss")
-    if score < best:
-        best = score
-        atomic_save(
-            dict(model=ema.state, epoch=epoch, score=score), directory / "best.pt"
-        )
-    if score < patience_best - MIN_DELTA:
-        patience_best, stale = score, 0
-    else:
-        stale += 1
-    history.append(
-        dict(
-            epoch=epoch,
-            optimizer_steps=step,
-            train_loss=train_sum / train_count,
-            val_loss=score,
-            seconds=perf_counter() - started,
-            stale_epochs=stale,
-        )
-    )
-    atomic_save(
-        dict(
-            model=autoencoder.state_dict(),
-            optimizer=optimizer.state_dict(),
-            ema=ema.state,
-            epoch=epoch,
-            step=step,
-            history=history,
-            best=best,
-            patience_best=patience_best,
-            stale=stale,
-            settings=settings,
-            setup_digest=setup_digest,
-            rng=rng_state(device),
-        ),
-        latest_path,
-    )
-    save_history(history, directory / "history.csv")
-    print(
-        f"Epoch {epoch:04d} | train {train_sum / train_count:.6f} | validation {score:.6f} | stale {stale}/{PATIENCE}"
-    )
+            if not torch.isfinite(physical_mse).all():
+                raise FloatingPointError("Nonfinite physical-space training error")
+            train_mse += len(state) * per_field.detach().cpu().double()
+            train_physical_mse += len(state) * physical_mse.cpu().double()
+        train_loss = train_sum / train_count
 
-if not model_path.exists():
-    save_selection(
-        directory,
-        parameters=parameters,
-        setup_digest=setup_digest,
-        training_settings=settings,
-    )
-selected = torch.load(model_path, map_location=device, weights_only=False)
-if selected["setup_digest"] != setup_digest:
-    raise ValueError("Selected AE belongs to different preprocessing")
-autoencoder.load_state_dict(selected["model"])
-autoencoder.eval().requires_grad_(False)
-
-# Encode the selected AE once. Scaling is fitted ONLY on training latents and
-# saved with this component, so diffusion and reconstruction use identical units.
-if (directory / "latents.pt").exists():
-    load_latents(RUN_DIR, COMPONENT)
-else:
-    latents = {}
-    with torch.no_grad():
-        for split, dataset in (
-            ("training", training_data),
-            ("validation", validation_data),
+        autoencoder.eval()
+        validation_sum, validation_count = 0.0, 0
+        validation_mse = torch.zeros_like(train_mse)
+        validation_physical_mse = torch.zeros_like(train_mse)
+        with (
+            ema.applied(autoencoder),
+            torch.no_grad(),
+            fixed_rng(VALIDATION_SEED, device),
         ):
-            encoded = []
-            for batch in DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False):
-                batch = {name: value.to(device) for name, value in batch.items()}
-                z = autoencoder.encode(
-                    batch["state"],
-                    static_tensor.expand(len(batch["state"]), -1, -1, -1),
-                    batch["month"],
-                    batch["co2"],
+            for state, physical, month, co2_value in validation_loader:
+                check_time_limit(deadline)
+                state = state.to(device)
+                month = month.to(device)
+                co2_value = co2_value.to(device)
+                prediction, latent = autoencoder(state, month, co2_value)
+                per_field = reconstruction_mse(prediction, state, latitudes)
+                validation_sum += len(state) * float(per_field.mean())
+                validation_count += len(state)
+                physical_mse = reconstruction_mse(
+                    autoencoder.to_physical(prediction), physical.to(device), latitudes
                 )
-                encoded.append(z.cpu())
-            latents[split] = torch.cat(encoded)
-    normalizer = LatentNormalizer().fit(latents["training"])
-    atomic_save(
-        dict(
-            training=normalizer.normalize(latents["training"]),
-            validation=normalizer.normalize(latents["validation"]),
-            normalizer=normalizer,
-            training_time=training_fields.time,
-            validation_time=validation_fields.time,
-            model_digest=file_digest(model_path),
-            setup_digest=setup_digest,
-        ),
-        directory / "latents.pt",
+                if not torch.isfinite(physical_mse).all():
+                    raise FloatingPointError(
+                        "Nonfinite physical-space validation error"
+                    )
+                validation_mse += len(state) * per_field.cpu().double()
+                validation_physical_mse += len(state) * physical_mse.cpu().double()
+        validation_loss = validation_sum / validation_count
+        if not np.isfinite(validation_loss):
+            raise FloatingPointError("Nonfinite validation loss")
+
+        # Select the best EMA, and count epochs without a meaningful improvement.
+        if validation_loss < progress.best_validation:
+            progress.best_validation = validation_loss
+            save_best_weights(directory, ema, epoch, validation_loss)
+        if validation_loss < progress.patience_best - MIN_DELTA:
+            progress.patience_best = validation_loss
+            progress.stale_epochs = 0
+        else:
+            progress.stale_epochs += 1
+        progress.epoch = epoch
+        train_rmse = (train_physical_mse / train_count).sqrt()
+        validation_rmse = (validation_physical_mse / validation_count).sqrt()
+        train_normalized_rmse = (train_mse / train_count).sqrt()
+        validation_normalized_rmse = (validation_mse / validation_count).sqrt()
+        epoch_seconds = perf_counter() - started  # training and validation
+        add_autoencoder_history(
+            progress,
+            train_loss,
+            validation_loss,
+            epoch_seconds,
+            variables=SPECIFICATIONS,
+            train_rmse=train_rmse,
+            validation_rmse=validation_rmse,
+            train_normalized_rmse=train_normalized_rmse,
+            validation_normalized_rmse=validation_normalized_rmse,
+        )
+        save_training_progress(directory, autoencoder, optimizer, ema, progress)
+        logger.info(
+            f"Epoch {epoch:04d} | train {train_loss:.6f} | validation {validation_loss:.6f}"
+            f" | {epoch_seconds:.1f} s/epoch"
+            f" | stale {progress.stale_epochs}/{PATIENCE}"
+        )
+
+        for index, variable in enumerate(SPECIFICATIONS):
+            units = variable.units or training_fields[variable.name].attrs.get(
+                "units", "unspecified units"
+            )
+            logger.info(
+                "  %s [%s] | physical RMSE train %.6g validation %.6g | normalized RMSE train %.6g validation %.6g",
+                variable.name,
+                units,
+                train_rmse[index],
+                validation_rmse[index],
+                train_normalized_rmse[index],
+                validation_normalized_rmse[index],
+            )
+
+except TrainingTimeLimit as error:
+    if not (directory / "best.pt").exists():
+        raise RuntimeError(
+            "Time limit reached before any epoch finished validation; "
+            "increase TIME_LIMIT_HOURS before restarting."
+        ) from error
+    logger.info(
+        "Training time limit reached; exporting the best completed validation epoch."
     )
-print(
-    f"Selected epoch {selected['epoch']}; saved AE and normalized latent cache in {directory}"
+    # An unfinished epoch is discarded. latest.pt remains the last complete
+    # epoch, and best.pt supplies the weights used by every following stage.
+
+selected_epoch = select_best_weights(directory, autoencoder)
+
+# Freeze the selected AE and encode each split once. The next script reads these
+# tensors directly; it does not retrain the AE or refit its normalization.
+if (directory / "latents.pt").exists():
+    autoencoder.latent_normalizer = load_latents(RUN_DIR, COMPONENT)["normalizer"]
+else:
+    encoded_splits = []
+    with torch.no_grad():
+        for dataset in (training_data, validation_data):
+            encoded_batches = []
+            loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
+            for state, physical, month, co2_value in loader:
+                latent = autoencoder.encode(
+                    state.to(device),
+                    month.to(device),
+                    co2_value.to(device),
+                )
+                encoded_batches.append(latent.cpu())
+            encoded_splits.append(torch.cat(encoded_batches))
+    training_latents, validation_latents = encoded_splits
+    autoencoder.latent_normalizer.fit(training_latents)
+    save_latent_cache(
+        directory,
+        training_latents,
+        validation_latents,
+        autoencoder.latent_normalizer,
+        training_fields.time,
+        validation_fields.time,
+    )
+# A portable file contains the selected AE, fitted preprocessing and latent scaler.
+if not (directory / "autoencoder.pt").exists():
+    autoencoder.save(directory / "autoencoder.pt")
+logger.info(
+    f"Selected epoch {selected_epoch}; saved AE and latent cache in {directory}"
 )

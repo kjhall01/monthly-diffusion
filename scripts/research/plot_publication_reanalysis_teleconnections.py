@@ -9,11 +9,15 @@ within-period regression, not independent forecast verification. Stream only
 the requested physical variables; no inference, no change to the E3SM figure.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import hashlib
 import json
 import logging
-from pathlib import Path
 
 import matplotlib
 
@@ -21,10 +25,10 @@ matplotlib.use("Agg")
 import xarray as xr
 import yaml
 
-from monthly_diffusion.analysis.archives import ClimateArchive
-from monthly_diffusion.analysis.long_rollout import save_dataset
-from monthly_diffusion.analysis.monthly_regression import regress_on_monthly_residual
-from monthly_diffusion.analysis.plotting import plot_response_matrix
+from workflows.analysis.archives import ClimateArchive
+from workflows.analysis.long_rollout import save_dataset
+from workflows.analysis.monthly_regression import regress_on_monthly_residual
+from workflows.analysis.plotting import plot_response_matrix
 
 STYLE = {
     "t2m": ("2-meter Temperature", "°C / °C Niño3.4", "K", 1.0),
@@ -131,7 +135,7 @@ metadata["display"] = plot_response_matrix(
 code = [
     Path(__file__),
     *[
-        Path(__file__).parents[2] / "monthly_diffusion/analysis" / f"{name}.py"
+        Path(__file__).parents[2] / "workflows/analysis" / f"{name}.py"
         for name in ("monthly_regression", "long_rollout", "archives", "plotting")
     ],
 ]

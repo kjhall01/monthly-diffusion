@@ -2,7 +2,8 @@ import numpy as np
 import pytest
 import torch
 import xarray as xr
-from monthly_diffusion import ModelConfig, TrainingConfig, Variable
+from workflows.legacy_records import ModelSettings
+from monthly_diffusion.preprocessing import Variable
 
 torch.set_num_threads(1)
 
@@ -45,8 +46,7 @@ def tiny_data():
     )
     co2time = xr.date_range("1966-01-01", periods=50, freq="MS")
     co2 = xr.DataArray(np.linspace(320, 350, 50), dims="time", coords={"time": co2time})
-    train = TrainingConfig(batch_size=4, max_epochs=1, patience=5, rollout_steps=3)
-    config = ModelConfig(
+    config = ModelSettings(
         variables=[
             Variable("t2m", "atmosphere", "K", weight=0.5),
             Variable("sst", "ocean", "degrees C", weight=0.5),
@@ -58,8 +58,6 @@ def tiny_data():
         transition_depth=1,
         transition_heads=2,
         time_embedding_channels=8,
-        autoencoder_training=train,
-        diffusion_training=train,
     )
     return a, o, static, co2, config
 
@@ -123,27 +121,34 @@ def run_script():
 
 @pytest.fixture
 def train_small_run(monkeypatch, run_script):
-    from monthly_diffusion.data import sources
-    from monthly_diffusion import load_models
+    from workflows.data import sources
+    from monthly_diffusion.loading import load_models
 
-    def train(data, directory, *, device="cpu"):
+    def train(data, directory, *, device="cpu", condition_on_co2=True):
         a, o, statics, co2, config = data
         monkeypatch.setattr(
             sources, "open_canonical_state", lambda *args, **kwargs: (a, o, statics)
         )
         monkeypatch.setattr(sources, "open_co2", lambda *args, **kwargs: co2)
+        monkeypatch.setattr(
+            sources,
+            "open_state_dataset",
+            lambda *args, **kwargs: xr.merge([a, o, statics], join="exact"),
+        )
         common = dict(
             RUN_DIR=directory,
             DEVICE=device,
             THREADS=1,
-            EPOCHS=config.autoencoder_training.max_epochs,
+            EPOCHS=1,
             WIDTH=config.ae_width,
             LATENT_CHANNELS=config.latent_channels,
             MESH_LEVELS=config.mesh_levels,
             REFINERS=config.refiners,
             ROTATION=config.rotation,
             CO2_FILM_LEVELS=config.co2_film_levels,
+            CONDITION_ON_CO2=condition_on_co2,
             OCEAN_SUPPORT=config.ocean_support,
+            MASK_CONSTANT_CELLS=False,  # legacy fixtures include all-constant variables
         )
         run_script(
             "train_atmosphere_autoencoder",
@@ -165,7 +170,7 @@ def train_small_run(monkeypatch, run_script):
             RUN_DIR=directory,
             DEVICE=device,
             THREADS=1,
-            EPOCHS=config.diffusion_training.max_epochs,
+            EPOCHS=1,
             WIDTH=config.transition_width,
             DEPTH=config.transition_depth,
             HEADS=config.transition_heads,

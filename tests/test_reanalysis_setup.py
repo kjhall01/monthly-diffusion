@@ -1,18 +1,20 @@
+from workflows.legacy_records import read_settings
 from pathlib import Path
 import yaml
-from monthly_diffusion import ModelConfig
+from workflows.legacy_records import ModelSettings
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_reanalysis_config_matches_mask_aware_e3sm():
-    era = ModelConfig.from_yaml(ROOT/"examples/model-era5-oras5.yaml")
-    e3sm = ModelConfig.from_yaml(ROOT/"examples/model-ocean-mask-aware.yaml")
+    era = read_settings(ROOT/"examples/model-era5-oras5.yaml")[0]
+    e3sm = read_settings(ROOT/"examples/model-ocean-mask-aware.yaml")[0]
     assert era.to_dict() == e3sm.to_dict()
     assert era.ocean_mask_aware
     assert not era.co2_film_levels  # unchanged: all levels, not finest only
     assert (era.atmosphere_tau, era.ocean_tau) == (.5, 6.)
-    assert era.autoencoder_training.seed == era.diffusion_training.seed == 20260716
+    _, training = read_settings(ROOT/"examples/model-era5-oras5.yaml")
+    assert training["atmosphere"]["seed"] == training["diffusion"]["seed"] == 20260716
 
 
 def test_reanalysis_source_uses_same_forcing_not_same_physical_data():

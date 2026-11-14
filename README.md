@@ -13,23 +13,42 @@ checkpoints and generated data/results are separate local artifacts. The
 `*-local.yaml` examples retain the original workstation paths; edit them for
 your machine or start from `examples/e3sm.yaml` / `examples/era5_oras5.yaml`.
 
-This is a **fresh-training implementation**, not a checkpoint converter. The
-architecture comes from the epoch-150 1° zonal-mean autoencoder and the corrected
-four-block, 1M-per-component, six-month ocean-noise transition. Staged AE-only
-training is new; it does not guarantee the same learned representation or skill
-as the co-trained epoch-150 checkpoint.
+The original architecture comes from the epoch-150 1° zonal-mean autoencoder
+and the corrected four-block, 1M-per-component, six-month ocean-noise transition.
+New AE runs add the refactor branch’s residual channel MLP after every spatial
+refinement. Existing production checkpoints load with their original no-MLP
+architecture. New training does not promise the same learned representation or
+skill as the co-trained epoch-150 checkpoint.
 
 ## Install and test
 
 ```bash
 git clone --branch production/emulator-v1 https://github.com/kjhall01/monthly-diffusion.git monthly-diffusion-production
 cd monthly-diffusion-production
-python -m pip install -e '.[test,plots]'
+python -m pip install -e '.[workflows,test,plots]'
 python -m pytest
 ```
 
-Python 3.11+, PyTorch, NumPy/SciPy, xarray, cftime, and Zarr 2 are required.
+The installed package contains the architectures, preprocessing, latent normalization,
+model saving/loading and monthly rollout. `workflows/` contains repository helpers
+for dataset reads, training state, archives and analysis; it is not included in the wheel.
+Run the training and archive scripts from this checkout.
+The `workflows` extra installs their data/archive dependencies, including Zarr 2.
 Cartopy/Matplotlib are optional plotting dependencies. The repository retains its existing [MIT license](LICENSE).
+
+Start with these architecture files:
+
+- `autoencoder.py`: encoder, decoder, conditioning and spatial refinement.
+- `diffusion.py`: DiT blocks, noising, coupling and the complete reverse-time sampler.
+- `rollout.py`: initialization and one-month forecast iteration, without file I/O.
+- `mesh.py`: spherical hierarchy construction, with geometry utilities in `_geometry/`.
+- `ecc.py`: edge-conditioned convolution, with private numerical implementations.
+
+Neural constructors take ordinary keyword arguments. There are no architecture
+config classes in the main model interface. The main scripts pass values
+directly to constructors and use named training counters. Saved-file dictionaries
+stay in the I/O helpers. Historical config support is confined to the external
+`legacy_*` modules; new runs use no `ModelSettings` object.
 
 ## Main workflow
 
@@ -56,8 +75,9 @@ python scripts/analyze_ae_reconstruction.py
 python scripts/analyze_ar_rollout.py
 ```
 
-The values at the top are ordinary editable Python. There is no `argparse`,
-`ModelConfig`, `main()` or call to a package trainer in these seven scripts.
+Editable values sit beside the data reads, network constructor and optimizer
+that use them. There is no `argparse`, `ModelConfig`, `main()` or call to a
+package trainer in these seven scripts.
 Each training script contains its optimizer, loss, epoch/batch loop, validation,
 checkpoint selection and resume logic. An AE script constructs only its own AE;
 diffusion training reads cached latents and constructs only the transition.
@@ -65,18 +85,23 @@ diffusion training reads cached latents and constructs only the transition.
 The [workflow guide](scripts/README.md) documents the shared run directory,
 parameters, outputs and resume behavior. Model files, preprocessing, latent
 caches, histories, reconstructions, forecasts and analyses all live under
-`RUN_DIR`. Small utilities and model loading live in the package; training lives
-in the scripts. The [code map](docs/code-map.md) shows where to make changes.
+`RUN_DIR`. Model loading and preprocessing live in `monthly_diffusion/`; training
+loops live in the scripts. The [code map](docs/code-map.md) shows where to make changes.
 
 ## Loading and inference
 
 ```python
-from monthly_diffusion import load_models, load_autoencoder, load_diffusion, MonthlyDiffusionV1
+from monthly_diffusion import load_models, load_autoencoder, load_diffusion, load_model
 
 # Each component can be loaded independently from the standard directory.
-atmosphere_ae, atmosphere_info = load_autoencoder('runs/my-run', 'atmosphere')
-ocean_ae, ocean_info = load_autoencoder('runs/my-run', 'ocean')
-diffusion, diffusion_info = load_diffusion('runs/my-run')
+atmosphere_ae = load_autoencoder('runs/my-run', 'atmosphere')
+ocean_ae = load_autoencoder('runs/my-run', 'ocean')
+diffusion = load_diffusion('runs/my-run')
+
+# Each AE owns its fitted preprocessing and latent normalizer.
+reconstructed = atmosphere_ae.reconstruct(atmos, co2=co2)
+atmosphere_ae.save('atmosphere.pt')
+restored_ae = load_autoencoder('atmosphere.pt')
 
 # Load the physical xarray interface for encode/decode and forecasting.
 model = load_models('runs/my-run')
@@ -95,20 +120,23 @@ fields = model.rollout(history_atmos, history_ocean, co2=future_co2,
                        months=120, members=5, seed=42,
                        path='runs/my-run/ssp370', resume=True)
 model.save('runs/my-run/export.pt')
-loaded = MonthlyDiffusionV1.load('runs/my-run/export.pt')
+loaded = load_model('runs/my-run/export.pt')
 ```
 
 The old `model.train()` and package training functions have been removed.
 Torch modules retain their normal `.train()`/`.eval()` mode switches. Existing
-combined checkpoints still load with `MonthlyDiffusionV1.load(path)`. Historical
+combined checkpoints still load with `load_model(path)`. Historical
 paired-training recipes use `scripts/legacy/train_model.py`, whose loops now
 live in that script. New training uses the component directory layout above.
 `model.autoencoder` and `model.transition` expose the ordinary PyTorch modules.
 The default device prefers MPS, then CUDA, then CPU; `device='cpu'` is explicit.
 
-`encode` returns fixed, transition-normalized latents; `decode` reverses that
+`ClimateModel.encode` returns fixed, transition-normalized latents; its `decode` reverses that
 normalization. Do not mix raw encoder outputs with the public decoder API.
-Physical inputs are chronological. Initialization uses their **last two adjacent
+The individual AE’s tensor `encode`/`decode` use normalized fields and raw latent
+tensors, as during training; `ae.latent_normalizer` explicitly converts latent
+coordinates. `ae.reconstruct(dataset, co2=...)` handles physical preprocessing
+and inversion itself. Physical inputs are chronological. Initialization uses their **last two adjacent
 months**. Internally all transition histories are **current, previous**; after a
 prediction they become **prediction, old current**, with no skipped months.
 Coupled training/forecasting requires both components. Encoding and decoding may
@@ -191,21 +219,31 @@ not repeat a completed cycle.
 | Rotation | fixed Rz(11°) Ry(23°) Rx(17°), both components |
 | AE width / refiners | 102; single-hop 6/6/4 per side |
 | Latents | 162 nodes × 4 channels per component |
-| AE trainable parameters | 3,017,193, both components combined |
+| AE refinement MLP | LayerNorm → Linear(102, 204) → SiLU → Linear(204, 102), residual |
+| AE trainable parameters | 5,647,773, both components combined |
 | Transition | four DiT blocks, width 132, four heads, FFN ratio 1.55 |
 | Transition parameters | 994,520 each; 1,989,040 combined |
-| Total trainable parameters | 5,006,233 |
+| Total trainable parameters | 7,636,813 |
 | Coupling | synchronous noisy-state coupling; no cross-component gradients |
 | Terminal noise | independent AR(1), atmosphere 0.5 months, ocean 6 months |
 | Diffusion target | full next-state v-prediction, not residual diffusion |
 | Rollout objective | three equally weighted steps; loss multiplier 0.01 |
 | Sampler | DPM-Solver++ 2M midpoint; 999, 674, 373, 120, 29, 6, 0 |
 
-Grid→mesh uses degree-bucketed ECC; mesh refiners and up/down paths use padded
-ECC. The radius/barycentric connectivity and learned math are unchanged. Empty
+Grid→mesh uses `BucketedECC`; mesh refiners and subsequent up/down paths use
+`PaddedECC`. `ScatterECC` is the reference used by numerical tests. These are
+the three class names, all imported from `monthly_diffusion.ecc`.
+The radius/barycentric connectivity and learned math are unchanged. Empty
 radius targets raise an error, rather than being silently assigned neighbors.
 Encoder/decoder conditioning is shared **within a component**, not across
 atmosphere/ocean. See [architecture.md](docs/architecture.md) for equations.
+
+New AEs apply FiLM only inside residual updates. Transfers and the final readout
+preserve unnormalized features. Learned conditioning is computed once per level
+per encoder/decoder pass and shared by its refiners. This architecture requires
+a fresh run; existing checkpoints load with their original FiLM placement.
+For a synthetic forward/backward comparison on your training device, run
+`python scripts/research/benchmark_autoencoder.py` (edit its values first).
 
 ### Optional mask-aware ocean ECC
 
@@ -254,18 +292,23 @@ and decoder gains), see [long-rollout-diagnostics.md](docs/long-rollout-diagnost
 
 The MDv1 preset explicitly defines 16 atmospheric and nine ocean fields. Units
 come from xarray and must agree with the preset (notation aliases are accepted).
-For a custom variable set, pass `Variable(...)` records; the code does not infer
-physical transforms or loss weights from variable names or arbitrary metadata.
+The AE scripts select fields with `VARIABLES`; known names use their preset
+transforms. Pass `Variable(...)` records to specify custom units or transforms.
 
 1. SIC: guarded logit, epsilon 1e-4. Positive fields: guarded inverse-softplus
    with epsilon 1e-6 in scaled units. Others, including OLR and SST: identity.
-2. Subtract one **annual zonal latitude profile**, fitted on training time ×
-   longitude after transforming. No monthly climatology or detrending.
-3. Divide by one pooled population **standard deviation**, not variance, of the
-   residuals. These statistics are unweighted; valid physical zeros count.
+2. The AE scripts select `CENTERING = "gridpoint"`: subtract the training-time
+   mean separately at each latitude/longitude after transforming. No monthly
+   climatology or detrending.
+3. Divide by each cell's training-time population **standard deviation**. A
+   floor of `GRIDPOINT_STD_FLOOR = 0.05` times the variable's area-weighted RMS
+   local std protects nearly constant cells (absolute minimum `1e-6`).
+   `CENTERING = "annual_zonal"` retains the old zonal mean plus one unweighted
+   pooled std per variable. Both modes count valid physical zeros.
 4. Preserve per-variable missing values for reconstruction masks. Only encoder
-   inputs are zero-filled. Default decoded masks are the union of finite training
-   support; they are fixed availability masks, not predictions of missingness.
+   inputs are zero-filled. Gridpoint normalization requires two finite training
+   observations per cell; the older modes require one. These masks are fixed
+   availability masks, not predictions of missingness.
 5. Normalize raw CO2 with its training mean/std. Topography uses global scalar
    mean/std; LSM remains a fraction. Static tensor order is `[phi_s, lsm]`.
 
@@ -276,10 +319,11 @@ it is not discarded from statistics. `sivol` means **SIC × SIT in metres**, not
 cell-integrated volume. The final-product adapter preserves missing land and
 sets wet ice-free equivalent thickness to zero.
 
-Reconstruction is cosine-latitude weighted MSE over each field's finite cells.
-The 14 core atmospheric variables share weight 0.5; stresses have 0.05 each;
-ocean variables have 0.05 each except SIC/equivalent thickness at 0.025 each.
-Total weight is one. There is no special ice loss.
+In the main AE scripts, reconstruction uses cosine-latitude weights over each
+sample/variable's finite cells, normalized to sum to one. The loss is the equal
+mean of these normalized-space MSEs across variables and samples. Training,
+validation and checkpoint selection all use this objective. Historical
+`Variable.weight` values apply only to the retained paired legacy script.
 
 ## Staged training and persistence
 
@@ -302,7 +346,7 @@ For coupled diffusion, the gradient objective is multiplied by `loss_weight`
 `val_transition` objective, so `min_delta` is independent of that balancing
 multiplier.
 
-`config.yaml`, `model.pt`, `latents.pt`, stage `latest.pt`/`best.pt`, and separate
+`run.json`, component `setup.pt`, `model.pt`, `latents.pt`, `latest.pt`/`best.pt`, and
 `history.csv` files record settings, preprocessing, statics, selected weights,
 optimizer/EMA/RNG state, and component/horizon losses. Interrupted stages resume;
 completed stages are skipped. Changing an already-completed stage's epoch limit
@@ -313,7 +357,7 @@ Streaming forecasts write compressed, chunked monthly Zarr shards, each with
 the associated latent/history/AR-noise/RNG state. Completed shards are reused on
 resume; incomplete `.partial` shards are overwritten. A manifest rejects changed
 weights, initial latents, seeds, configuration, or forcing. Read lazily with
-`monthly_diffusion.open_rollout(path)`, not `xr.open_zarr(path)` at the shard root.
+`workflows.forecast.open_rollout(path)`, not `xr.open_zarr(path)` at the shard root.
 This makes writes/resume explicit and avoids rewriting an entire long trajectory.
 
 ## Examples and reusable analysis
@@ -361,7 +405,7 @@ PYTHONPATH=. python scripts/research/diagnose_decadal_sst.py \
 The [configuration](examples/decadal-sst.yaml) specifies the four existing SST
 archives, periods, basin boxes, filter, and EOF count. This diagnostic performs
 no model inference and changes no training or forecast products. The reusable
-calculations live in [analysis/decadal.py](monthly_diffusion/analysis/decadal.py).
+calculations live in [analysis/decadal.py](workflows/analysis/decadal.py).
 
 Definitions and interpretation:
 

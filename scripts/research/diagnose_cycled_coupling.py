@@ -14,10 +14,14 @@ Report offsets, spread and departures from the TRAINING regression as well as
 correlation. Thirty months/one member cannot establish coupling or causality.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import json
-import sys
 
 import matplotlib
 
@@ -30,20 +34,12 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.analysis.indices import regional_mean
-from monthly_diffusion.data.sources import open_canonical_state
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.analysis.indices import regional_mean
+from workflows.data.sources import open_canonical_state
 
 
-from monthly_diffusion.experiments.diagnose_cycled_coupling import (
-    COMPONENTS,
-    fixed_anomalies,
-    pair_metrics,
-    lag_curve,
-    physical_indices,
-    decode_indices,
-    plot_comparison,
-)
+from workflows.experiments.diagnose_cycled_coupling import COMPONENTS, fixed_anomalies, pair_metrics, lag_curve, physical_indices, decode_indices, plot_comparison
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument(
@@ -66,8 +62,8 @@ probe_config = json.loads((args.readouts / "configuration.json").read_text())
 if config["weight_digest"] != probe_config["checkpoint_sha256"]:
     raise ValueError("Pilot/probe checkpoint mismatch")
 run = Path(config["run"])
-cache = torch.load(run / "latents.pt", map_location="cpu", weights_only=False)
-saved = torch.load(
+cache = load_checkpoint(run / "latents.pt", map_location="cpu", weights_only=False)
+saved = load_checkpoint(
     args.pilot / "latent_states.pt", map_location="cpu", weights_only=False
 )
 train_dates = np.asarray(cache["training_time"])

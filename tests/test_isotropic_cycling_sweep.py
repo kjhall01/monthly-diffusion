@@ -5,7 +5,7 @@ import torch
 
 from test_cycled_initialization import CycleModel
 
-from monthly_diffusion.experiments import experiment_isotropic_cycling_sweep as sweep
+from workflows.experiments import experiment_isotropic_cycling_sweep as sweep
 
 
 def test_real_histories_are_adjacent_calendar_matched_and_balanced():

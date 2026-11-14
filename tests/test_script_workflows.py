@@ -8,23 +8,28 @@ import numpy as np
 import xarray as xr
 import yaml
 
-from monthly_diffusion import MonthlyDiffusionV1, open_rollout, load_models
-from monthly_diffusion.data import sources
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.inference.archive import open_rollout
+from monthly_diffusion.loading import load_models
+from workflows.data import sources
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_legacy_imports_keep_the_public_model_class():
-    # Importing the old class module must not replace the package's class export
-    # with a module object in a notebook that mixes old and new import styles.
+def test_public_package_exposes_models_and_inference_utilities():
     import monthly_diffusion
-    from monthly_diffusion.MonthlyDiffusionV1 import MonthlyDiffusionV1 as legacy
-    from monthly_diffusion.model import MonthlyDiffusionV1 as current
-    from monthly_diffusion.forecast import Forecast as old_forecast
-    from monthly_diffusion.inference.forecast import Forecast
+    from monthly_diffusion.rollout import Forecast
 
-    assert monthly_diffusion.MonthlyDiffusionV1 is legacy is current
-    assert old_forecast is Forecast
+    assert monthly_diffusion.Forecast is Forecast
+    assert monthly_diffusion.load_models is load_models
+    assert callable(monthly_diffusion.load_autoencoder)
+    assert callable(monthly_diffusion.Preprocessor)
+    for name in (
+        "MonthlyDiffusionV1",
+        "ModelSettings",
+        "TrainingConfig",
+    ):
+        assert not hasattr(monthly_diffusion, name)
 
 
 def test_legacy_training_and_forecast_scripts(tiny_data, tmp_path, monkeypatch):
@@ -57,7 +62,12 @@ def test_legacy_training_and_forecast_scripts(tiny_data, tmp_path, monkeypatch):
         yaml.safe_dump({"state_zarr": "fixture", "co2_netcdf": "fixture"})
     )
     config_file = tmp_path / "model.yaml"
-    config.save(config_file)
+    from workflows.legacy_records import training_defaults
+
+    record = config.to_dict()
+    for key in ("autoencoder_training", "diffusion_training"):
+        record[key] = dict(training_defaults(), max_epochs=1)
+    config_file.write_text(yaml.safe_dump(record))
 
     arguments = [
         str(ROOT / "scripts/legacy/train_model.py"),

@@ -4,8 +4,11 @@ Read annual latent shards in bounded memory. No readout is refitted. Confidence
 intervals resample whole members, never individual months or grid cells.
 """
 
-from pathlib import Path
+# Make the repository workflow helpers available when running this file directly.
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -16,16 +19,10 @@ import matplotlib
 matplotlib.use("Agg")
 import torch
 
-from monthly_diffusion.experiments.experiment_isotropic_cycling_sweep import OUTPUT
+from workflows.experiments.experiment_isotropic_cycling_sweep import OUTPUT
 
 
-from monthly_diffusion.experiments.diagnose_isotropic_cycling_sweep import (
-    assemble,
-    compare,
-    plot,
-    convergence,
-    bulk_latents,
-)
+from workflows.experiments.diagnose_isotropic_cycling_sweep import assemble, compare, plot, convergence, bulk_latents
 
 label = "screen_january"
 

@@ -1,84 +1,102 @@
 # Read and change the emulator
 
 Start with the seven ordinary scripts in [scripts/README.md](../scripts/README.md).
-Parameters are editable Python values at the top. Training scripts instantiate
-actual Torch networks and contain their optimizer, batch/epoch loops, validation,
-checkpoint selection and resume logic. There are no package training entry points.
+They contain editable parameter values and the training/generation/analysis steps.
+The installed package contains architectures, preprocessing, model I/O and monthly iteration.
 
-## Reading order
+## Architecture package
 
-1. **Atmosphere AE:** `scripts/train_atmosphere_autoencoder.py` creates the run,
-   opens the shared source, fits one component's preprocessing, constructs one AE,
-   trains it, selects its best EMA and writes its normalized latent cache.
-2. **Ocean AE:** `scripts/train_ocean_autoencoder.py` reads the run's source and
-   split record, then performs the same explicit steps for the ocean. Each script
-   is independently readable; neither imports or executes the other script.
-3. **Diffusion:** `scripts/train_latent_diffusion.py` loads the two selected latent
-   caches, constructs the coupled transition, and trains it. The multi-step loss
-   is network math in `components/coupled_latent_diffusion.py`; the training loop
-   stays in the script. AEs are not allocated during diffusion training.
-4. **Generation:** `scripts/generate_ae_reconstruction.py` loads both AEs and
-   reconstructs one reference year at a time. `scripts/generate_ar_rollout.py`
-   loads all three models, initializes history, resumes/spins up, then predicts,
-   decodes and writes one month at a time.
-5. **Analysis:** the two `scripts/analyze_*.py` files select the reference,
-   generated fields, periods and variables. They calculate, save and plot the
-   small time-series/map products, processing one physical variable at a time.
+| File | What to change here |
+|---|---|
+| `monthly_diffusion/autoencoder.py` | Encoder, decoder, shared static/month/CO2 FiLM, grid position embedding, ECC and channel MLP refinement |
+| `monthly_diffusion/diffusion.py` | DiT blocks, optional CO2 FiLM and CFG, component heads, noise schedule, AR(1) noise, coupling, complete sampling loops and numerical solver updates |
+| `monthly_diffusion/preprocessing.py` | Variable definitions, physical transforms, fitted statistics and `LatentNormalizer` |
+| `monthly_diffusion/loading.py` | Save/load individual networks or assemble a `ClimateModel` from a run directory |
+| `monthly_diffusion/model.py` | Physical xarray encode/decode and in-memory forecasts around the networks |
+| `monthly_diffusion/checkpoints.py` | File records, atomic checkpoint writes and historical weight-name translation |
+| `monthly_diffusion/rollout.py` | Initial history creation, monthly forecast iteration, private RNG and in-memory forecast state |
+| `monthly_diffusion/mesh.py` | Fixed-orientation hierarchy and maps between physical grid and meshes |
+| `monthly_diffusion/ecc.py` | `BucketedECC` and the public imports for `PaddedECC` and the test reference `ScatterECC` |
+| `monthly_diffusion/_geometry/` | Graph records, geographic features, connectivity and geometry construction |
 
-## Package layout
+For diffusion, read `CoupledLatentDiffusion.denoise()`, then
+`denoise_paired_with_timesteps()`, then `_advance()` and `_dpmpp2m_update()`.
+They are all in **diffusion.py**. The single-component sampler is in that file too.
+`denoise()` supports gradients; `sample()` calls the same solver without gradients.
 
-Paths below are relative to `monthly_diffusion/`.
+ECC means edge-conditioned convolution. Each implementation has one name:
+`BucketedECC` groups neighbors by count; `PaddedECC` uses one padded table;
+`ScatterECC` is the numerical reference used by tests. The first two are used
+in the model and have identical learned parameterization. Import them from
+`monthly_diffusion.ecc`; there are no additional aliases for these classes.
+
+Models accept explicit keyword arguments such as `width=132`, `depth=4` and
+`latent_channels=4`. Geometry is built once and passed directly to the AE.
+No configuration object is constructed or passed between neural modules.
+The geometry record has named `grid`, `meshes`, `down_maps`, `up_maps` and
+`neighbor_maps` fields. There is no separate conditioning context object.
+
+For the AE, start with `Encoder.forward()` and `Decoder.forward()` in
+**autoencoder.py**. Static fields are pooled once in the constructor; forward
+walks the meshes using those fixed fields. Only per-sample masks need new pooling.
+`FiLM.modulation()` computes conditioning once per level and pass;
+`FiLM.forward()` applies it to normalized residual inputs. `RefinementBlock`
+contains both spatial mixing and the residual channel MLP. The decoder shares
+`encoder.film`; the rest of the encoder/decoder machinery belongs to each class.
+Transfers and the final readout operate directly on unnormalized features.
+
+## External workflow code
+
+`workflows/` is part of the checkout and is deliberately excluded from the wheel.
+Installed model loading, preprocessing and in-memory inference work without it.
+`ClimateModel.rollout(path=...)` uses its archive helpers when saving a forecast to disk.
 
 | Location | Responsibility |
 |---|---|
-| `model_loading.py` | Load an actual AE or diffusion module, or assemble the physical inference interface from a run |
-| `run_files.py` | Shared source/split record, file identities, selected checkpoint files, latent reads, CSV history |
-| `model.py` | Physical xarray encode/decode, forecasting interface, combined checkpoint import/export; no training method |
-| `modules/autoencoder.py` | Actual AE modules and finite-mask cosine-area reconstruction MSE |
-| `modules/` | Mesh geometry, ECC, FiLM, embeddings, attention and DiT layers |
-| `components/` | Diffusion objectives, component coupling, correlated noise and reverse-time sampling |
-| `data/configs.py` | Physical variable definitions; legacy parameter records retained for checkpoint loading |
-| `data/sources.py` | Read canonical sources and prescribed CO2 |
-| `data/dataloader.py` | Physical/component batches, latent sequences, month features, boundary checks |
-| `data/preprocessing.py` | Physical transforms, training-only statistics, fixed latent scaling |
-| `training/ema.py` | Parameter EMA and temporary validation weights |
-| `training/checks.py` | Validate component data and interrupted-run settings |
-| `training/data.py`, `resume.py`, `latents.py` | Helpers used by the historical paired script |
-| `inference/initialization.py` | Observed, Gaussian latent, encoded-noise and local-moment histories |
-| `inference/moments.py` | Training-only local monthly field moments |
-| `inference/forecast.py` | One monthly latent step, newest-first history, persistent noise and private RNG |
-| `inference/spinup.py` | Discarded months and optional annual latent blocks |
-| `inference/metadata.py`, `archive.py` | Calendar/forcing/model identity, atomic monthly writes, resume and extension |
-| `inference/reconstruction.py` | Atomic annual physical/latent reconstruction archives |
-| `checkpoints.py`, `random_state.py`, `devices.py` | Small file, RNG and device helpers |
-| `analysis/trajectory.py`, `trajectory_plots.py` | Main evaluation calculations and figures |
-| `analysis/` | Additional climate indices, regression, spectra and map calculations |
-| `experiments/` | Helpers for the specialized scripts in `scripts/research/` |
+| `scripts/train_*` | Optimizer, epochs, validation, EMA selection and interrupted training resume |
+| `workflows/run_files.py` | Create the shared run directory and write histories/selection summaries |
+| `workflows/legacy_model.py`, `legacy_records.py` | Historical paired model construction and saved config records |
+| `workflows/data/` | Source reads and training datasets |
+| `workflows/training/` | Loss calculations, EMA, validation checks and file I/O; no training loops |
+| `workflows/forecast.py` | Connect forecast iteration to decoding, spin-up and optional archives |
+| `workflows/inference/` | Archive metadata, disk resume/extension and reconstruction output |
+| `workflows/analysis/` | Metrics, climate diagnostics and figures |
+| `workflows/experiments/` | Helpers for specialized scripts in `scripts/research/` |
 
-## Compatibility and checks
+The main scripts construct the actual Torch modules. Their loops do not delegate
+to a trainer or orchestrator. They share a run directory containing preprocessing,
+selected weights, cached latents, histories, forecasts and evaluation products.
 
-The old `model.train()`, package AE/diffusion trainers and generic `fit()` loop
-have been removed. Historical paired training remains an ordinary script under
-`scripts/legacy/`, so its existing shell recipes can still be used. It retains
-its original CLI and combined checkpoint layout; it is separate from the new
-component workflow. Existing combined model checkpoints, forecast initialization
-modes and archived rollout resume remain supported. Serialized preprocessing and
-configuration classes retain their old module paths.
+## Existing runs and imports
 
-The new component layout allows independent AE widths/channels, with matching
-latent mesh coordinates required by coupled diffusion. Every model records its
-constructor parameters, preprocessing and selected inputs. Each AE initializes
-and selects independently, so a fresh run need not reproduce the prior combined
-initialization or paired checkpoint selection.
+New AEs use `refiner_mlp_ratio=2`: each ECC residual is followed by
+`h = h + mlp(norm(h))`. This is an intentional architecture change and needs
+a fresh run. New AEs also use `residual_film_only=True`: transfer and output paths
+bypass FiLM. Saved files without this flag use the historical path when loaded.
+To continue historical training explicitly, construct the AE with
+`residual_film_only=False` and its original `REFINER_MLP_RATIO` (zero for pre-MLP
+files); the main scripts otherwise require a new run directory.
 
-`tests/test_main_path.py` runs all seven scripts with small real networks, checks
-that each training stage constructs only the networks it needs, validates the
-model loaders, and compares interrupted training against uninterrupted training.
-It also checks reconstruction before diffusion, unequal AE channels, combined
-checkpoint export/reload, changed-cache rejection, and AR resume/extension for
-all four initializers. Tests edit only the scripts' top-level parameter values
-in memory; the production code contains no test configuration hooks.
+Existing checkpoint weights, optimizer/EMA states and serialized preprocessing
+are translated by the package loaders. Unused historical mesh-position weights
+are kept only as checkpoint data so existing archive identities remain valid.
+Old AEs load without adding an untrained MLP. Their encode/decode, stochastic
+initialization and diffusion sampling behavior is preserved.
 
-The rest of the suite covers preprocessing/masks, stochastic initialization,
-spin-up/restarts, scientific diagnostics and the historical paired CLI.
-Run `python -m pytest tests -q`.
+Python import paths intentionally change: architecture imports use the flat
+package, and workflow imports use `workflows`. There are no forwarding modules
+under the old package paths. For example:
+
+```python
+from monthly_diffusion import Autoencoder, CoupledLatentDiffusion, Forecast
+from monthly_diffusion import load_models
+from workflows.inference.archive import open_rollout
+```
+
+The historical paired CLI and its shell recipes remain under `scripts/legacy/`
+and `scripts/recipes/`. They use external helpers and do not add configuration
+support to the architecture package. New experiments use the seven main scripts.
+
+Run `python -m pytest`. The suite exercises actual small-network training,
+independent components, interrupted training, loading, reconstruction, every
+initializer, rollout resume/extension and the retained scientific diagnostics.

@@ -10,11 +10,15 @@ is only one reanalysis trajectory. This is a descriptive historical comparison,
 not out-of-sample validation. Complete source identity and all curves are saved.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import hashlib
 import json
 import logging
-from pathlib import Path
 
 import matplotlib
 
@@ -24,16 +28,10 @@ import pandas as pd
 import xarray as xr
 import yaml
 
-from monthly_diffusion.analysis.archives import ClimateArchive
-from monthly_diffusion.analysis.enso_diversity import (
-    extract_boxes,
-    regional_trajectory_anomalies,
-)
-from monthly_diffusion.analysis.enso_comparison import (
-    enso_statistics,
-    plot_enso_comparison,
-)
-from monthly_diffusion.analysis.long_rollout import save_dataset
+from workflows.analysis.archives import ClimateArchive
+from workflows.analysis.enso_diversity import extract_boxes, regional_trajectory_anomalies
+from workflows.analysis.enso_comparison import enso_statistics, plot_enso_comparison
+from workflows.analysis.long_rollout import save_dataset
 
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -170,7 +168,7 @@ provenance.update(
 code_paths = [
     Path(__file__),
     *[
-        Path(__file__).parents[2] / "monthly_diffusion/analysis" / f"{x}.py"
+        Path(__file__).parents[2] / "workflows/analysis" / f"{x}.py"
         for x in ("enso_comparison", "enso_diversity", "indices", "spectra", "archives")
     ],
 ]

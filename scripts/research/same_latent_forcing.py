@@ -9,11 +9,16 @@ performed.
 
 from __future__ import annotations
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import hashlib
 import json
 import logging
-from pathlib import Path
 
 import matplotlib
 
@@ -23,13 +28,13 @@ import torch
 import xarray as xr
 import yaml
 
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.data.sources import open_canonical_state, open_co2
-from monthly_diffusion.data.preprocessing import LatentNormalizer
-from monthly_diffusion.analysis.spatial import weighted_mean
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.data.sources import open_canonical_state, open_co2
+from monthly_diffusion.preprocessing import LatentNormalizer
+from workflows.analysis.spatial import weighted_mean
 
 
-from monthly_diffusion.experiments.same_latent_forcing import decode_response, plot_maps
+from workflows.experiments.same_latent_forcing import decode_response, plot_maps
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--run", type=Path, default=Path("runs/mdv1-e3smv2-r1i1p1f1"))
@@ -58,7 +63,7 @@ co2 = open_co2(source["co2_netcdf"], expected_sha256=source.get("co2_sha256"))
 model = MonthlyDiffusionV1.load(args.run / "model.pt", device=args.device)
 checkpoint_epoch = None
 if args.autoencoder_checkpoint is not None:
-    payload = torch.load(
+    payload = load_checkpoint(
         args.autoencoder_checkpoint, map_location="cpu", weights_only=False
     )
     model.autoencoder.load_state_dict(payload["model"])

@@ -5,20 +5,20 @@ One or more reference files may be supplied.  Multiple single-member E3SM
 stores are concatenated along ``member`` before diagnostics.
 """
 
-import argparse
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import argparse
 import numpy as np
 import xarray as xr
-from monthly_diffusion import open_rollout
-from monthly_diffusion.analysis import (
-    climate_diagnostics,
-    internal_variability,
-    pdo_loading,
-)
-from monthly_diffusion.analysis.plotting import plot_map_comparison
+from workflows.inference.archive import open_rollout
+from workflows.analysis import climate_diagnostics, internal_variability, pdo_loading
+from workflows.analysis.plotting import plot_map_comparison
 
 
-from monthly_diffusion.analysis.forced_maps import run_forced_only
+from workflows.analysis.forced_maps import run_forced_only
 
 
 p = argparse.ArgumentParser()

@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from monthly_diffusion.experiments import diagnose_cycled_coupling as analysis
+from workflows.experiments import diagnose_cycled_coupling as analysis
 
 
 def test_fixed_monthly_baseline_preserves_offset():

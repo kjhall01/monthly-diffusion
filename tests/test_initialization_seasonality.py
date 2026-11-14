@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from monthly_diffusion.experiments import diagnose_initialization_seasonality as diagnostic
+from workflows.experiments import diagnose_initialization_seasonality as diagnostic
 
 
 def test_own_month_trend_and_ensemble_subtraction(tmp_path,monkeypatch):

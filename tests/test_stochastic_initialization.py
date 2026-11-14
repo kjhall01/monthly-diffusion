@@ -7,8 +7,8 @@ import pytest
 import torch
 import xarray as xr
 
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.forecast import Forecast, rollout
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.forecast import Forecast, rollout
 from test_encoded_noise_forecast import NoiseModel
 
 
@@ -126,6 +126,8 @@ def test_missing_moments_and_conflicting_initializers():
             co2=xr.DataArray([280.],dims="time",coords=dict(time=[np.datetime64("1800-01-01")])) )
 
 
+@pytest.mark.filterwarnings("error:Degrees of freedom <= 0 for slice:RuntimeWarning")
+@pytest.mark.filterwarnings("error:Mean of empty slice:RuntimeWarning")
 def test_fitting_selects_only_saved_training_dates_and_preserves_zero_sd():
     dates=np.arange("1965-01","1969-01",dtype="datetime64[M]")
     values=np.full((48,2,2),1e8,dtype="float32");values[12:24]=2.;values[24:36]=6.
@@ -141,4 +143,7 @@ def test_fitting_selects_only_saved_training_dates_and_preserves_zero_sd():
     np.testing.assert_array_equal(s["std"][:,0,0],2.)
     np.testing.assert_array_equal(s["std"][:,0,1],0.)
     assert np.isnan(s["mean"][:,1,:]).all()
+    assert np.isnan(s["std"][:,1,:]).all()
+    np.testing.assert_array_equal(s["count"][:,1,0],0)
+    np.testing.assert_array_equal(s["count"][:,1,1],1)
     torch.testing.assert_close(before,torch.get_rng_state(),rtol=0,atol=0)

@@ -8,11 +8,15 @@ as required for these statistics, but never linearly detrend them. Window means
 are retained separately so a persistent displacement cannot hide in the ACF.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import hashlib
 import json
-import sys
 
 import matplotlib
 
@@ -26,16 +30,10 @@ import xarray as xr
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion.analysis.long_rollout_plots import finish
+from workflows.analysis.long_rollout_plots import finish
 
 
-from monthly_diffusion.experiments.diagnose_spinup_latents import (
-    COMPONENTS,
-    COLORS,
-    fixed_monthly_anomalies,
-    window_statistics,
-    load_latent_trajectory,
-)
+from workflows.experiments.diagnose_spinup_latents import COMPONENTS, COLORS, fixed_monthly_anomalies, window_statistics, load_latent_trajectory
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument(
@@ -68,8 +66,8 @@ probes_metadata = json.loads((args.readouts / "configuration.json").read_text())
 if metadata["checkpoint_sha256"] != probes_metadata["checkpoint_sha256"]:
     raise ValueError("Readouts were fitted on a different checkpoint")
 checkpoint = Path(probes_metadata["checkpoint"])
-payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-cache = torch.load(
+payload = load_checkpoint(checkpoint, map_location="cpu", weights_only=False)
+cache = load_checkpoint(
     checkpoint.parent / "latents.pt", map_location="cpu", weights_only=False
 )
 digest = hashlib.sha256()
@@ -86,7 +84,7 @@ if digest.hexdigest() != metadata["checkpoint_sha256"]:
 del payload
 
 raw, times = load_latent_trajectory(args.forecast, metadata, args.through_year)
-initial = torch.load(
+initial = load_checkpoint(
     args.forecast / "initial_state.pt", map_location="cpu", weights_only=False
 )
 train_dates = np.asarray(cache["training_time"])

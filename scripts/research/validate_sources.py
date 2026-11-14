@@ -1,18 +1,18 @@
 """Read-only, one-year preprocessing smoke check against a final source archive."""
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import json
-from pathlib import Path
 import numpy as np
 import yaml
-from monthly_diffusion.data.configs import mdv1_variables
-from monthly_diffusion.data.sources import open_canonical_state, open_co2
-from monthly_diffusion.data.preprocessing import Preprocessor
-from monthly_diffusion.data.dataloader import (
-    co2_values,
-    validate_fields,
-    validate_units,
-)
+from monthly_diffusion.preprocessing import mdv1_variables
+from workflows.data.sources import open_canonical_state, open_co2
+from monthly_diffusion.preprocessing import Preprocessor
+from workflows.data.dataloader import co2_values, validate_fields, validate_units
 
 
 parser = argparse.ArgumentParser()

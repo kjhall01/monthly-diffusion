@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Run the frozen package's bounded-memory long-rollout evaluation."""
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import fcntl
 import json
 import logging
 import os
-from pathlib import Path
-import sys
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -51,16 +54,12 @@ for name in (
     "MKL_NUM_THREADS",
 ):
     os.environ[name] = "4"
-from monthly_diffusion.analysis.archives import ClimateArchive
-from monthly_diffusion.analysis.long_rollout import (
-    fit_pdo,
-    extract_indices,
-    variable_products,
-)
+from workflows.analysis.archives import ClimateArchive
+from workflows.analysis.long_rollout import fit_pdo, extract_indices, variable_products
 import numpy as np
 import xarray as xr
-from monthly_diffusion.analysis.long_rollout_plots import plot_long_rollout
-from monthly_diffusion.analysis.decoder_gain import decoder_diagnostics
+from workflows.analysis.long_rollout_plots import plot_long_rollout
+from workflows.analysis.decoder_gain import decoder_diagnostics
 import torch
 
 torch.set_num_threads(4)
@@ -114,8 +113,8 @@ if args.stage in ("all", "physical"):
         forecast.lon, reference.lon
     ):
         raise ValueError("Reference and model must share the same grid")
-    from monthly_diffusion.data.dataloader import validate_units
-    from monthly_diffusion.data.configs import Variable
+    from workflows.data.dataloader import validate_units
+    from monthly_diffusion.preprocessing import Variable
 
     validate_units(
         xr.Dataset(
@@ -175,9 +174,7 @@ if args.stage in ("all", "physical"):
             raise ValueError(
                 "Reanalysis diagnostics require explicit matched training-period anomaly comparisons"
             )
-        from monthly_diffusion.analysis.trajectory_anomalies import (
-            TrainingTrajectoryAnomalies,
-        )
+        from workflows.analysis.trajectory_anomalies import TrainingTrajectoryAnomalies
 
         for name, archive in (("reference", reference), ("model", forecast)):
             anomaly_fits[name] = TrainingTrajectoryAnomalies(

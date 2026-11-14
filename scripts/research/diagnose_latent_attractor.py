@@ -17,11 +17,15 @@ future calendar labels therefore indicate elapsed time, not a forced projection.
 Yearly atomic latent/state shards permit exact resume without physical Zarrs.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import hashlib
 import json
-import sys
 
 import matplotlib
 
@@ -33,18 +37,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1
+from workflows.legacy_model import MonthlyDiffusionV1
 
 
-from monthly_diffusion.experiments.diagnose_latent_attractor import (
-    COMPONENTS,
-    RUNS,
-    paired_rollout,
-    prepare_probes,
-    initialization_statistics,
-    overview,
-    analyze,
-)
+from workflows.experiments.diagnose_latent_attractor import COMPONENTS, RUNS, paired_rollout, prepare_probes, initialization_statistics, overview, analyze
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--model", choices=RUNS, required=True)
@@ -66,7 +62,7 @@ output = args.output / args.model
 output.mkdir(parents=True, exist_ok=True)
 run = RUNS[args.model]
 model = MonthlyDiffusionV1.load(run / "model.pt", device=args.device)
-cache = torch.load(run / "latents.pt", map_location="cpu", weights_only=False)
+cache = load_checkpoint(run / "latents.pt", map_location="cpu", weights_only=False)
 if cache["ae_digest"] != model.weight_digest(autoencoder_only=True):
     raise ValueError("Wrong cached autoencoder")
 source = yaml.safe_load((run / "data_sources.yaml").read_text())
@@ -94,9 +90,9 @@ metadata = dict(
     implementation_sha256={
         str(f.relative_to(ROOT)): hashlib.sha256(f.read_bytes()).hexdigest()
         for f in (
-            ROOT / "monthly_diffusion/forecast.py",
-            ROOT / "monthly_diffusion/components/coupled_latent_diffusion.py",
-            ROOT / "monthly_diffusion/components/sampling.py",
+            ROOT / "workflows/forecast.py",
+            ROOT / "monthly_diffusion/diffusion.py",
+            ROOT / "monthly_diffusion/diffusion.py",
         )
     },
 )

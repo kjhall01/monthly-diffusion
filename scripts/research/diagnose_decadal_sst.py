@@ -5,13 +5,17 @@ Run from the repository root with PYTHONPATH=frozen. Annual 5-degree caches
 make subsequent EOF/plot iterations cheap; no forecasts are regenerated.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import hashlib
 import json
 import logging
 import importlib.metadata
 import platform
-from pathlib import Path
 
 import matplotlib
 
@@ -19,7 +23,7 @@ matplotlib.use("Agg")
 import yaml
 
 
-from monthly_diffusion.experiments.diagnose_decadal_sst import run
+from workflows.experiments.diagnose_decadal_sst import run
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("config", type=Path)
@@ -37,7 +41,7 @@ marker.write_text(json.dumps(config, indent=2) + "\n")
 code = [
     Path(__file__),
     *[
-        Path(__file__).parents[2] / "monthly_diffusion/analysis" / p
+        Path(__file__).parents[2] / "workflows/analysis" / p
         for p in (
             "decadal.py",
             "decadal_plots.py",
@@ -64,7 +68,7 @@ environment = dict(
 ).write_text(json.dumps(environment, indent=2) + "\n")
 if not args.plots_only:
     run(config, root)
-from monthly_diffusion.analysis.decadal_plots import plot_decadal
+from workflows.analysis.decadal_plots import plot_decadal
 
 plot_decadal(root, config)
 logging.info("Finished decadal SST analysis: %s", root.resolve())

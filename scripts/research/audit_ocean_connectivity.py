@@ -8,12 +8,16 @@ same-mesh edges and example Pacific--Atlantic shortest paths.
 
 from __future__ import annotations
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import json
-from pathlib import Path
 
 
-from monthly_diffusion.experiments.audit_ocean_connectivity import audit
+from workflows.experiments.audit_ocean_connectivity import audit
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--one-degree", type=Path, required=True)

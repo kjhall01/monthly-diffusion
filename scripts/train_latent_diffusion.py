@@ -1,39 +1,76 @@
-"""Train coupled diffusion on the selected AE caches. Edit these values and run."""
+"""Train coupled diffusion on the selected AE latents. Edit the values below."""
 
+import sys
 from pathlib import Path
-from monthly_diffusion.run_files import check_script_arguments
 from time import perf_counter
 import random
 import numpy as np
 import torch
+import xarray as xr
 from torch.utils.data import DataLoader
-from monthly_diffusion.components.coupled_latent_diffusion import CoupledLatentDiffusion
-from monthly_diffusion.data.dataloader import LatentSequences
-from monthly_diffusion.run_files import (
-    read_run,
-    load_latents,
-    file_digest,
-    save_selection,
-    save_history,
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from monthly_diffusion.diffusion import CoupledLatentDiffusion
+from monthly_diffusion.rollout import fixed_rng, co2_values
+from workflows.run_files import check_script_arguments
+from workflows.data.run_data import load_training_latents, load_run_co2
+from workflows.data.dataloader import LatentSequences
+from workflows.training.ema import EMA
+from workflows.training.time_limit import TrainingTimeLimit, check_time_limit
+from workflows.training.losses import rollout_loss, DiffusionLoss
+from workflows.training.files import (
+    save_diffusion_setup,
+    load_training_progress,
+    save_best_weights,
+    save_training_progress,
+    add_diffusion_history,
+    select_best_weights,
 )
-from monthly_diffusion.checkpoints import atomic_save
-from monthly_diffusion.training.ema import EMA
-from monthly_diffusion.training.checks import check_resume_settings
-from monthly_diffusion.random_state import rng_state, restore_rng, fixed_rng
 
 check_script_arguments()
 
-RUN_DIR = Path("runs/production")
+# Resolve beside this script, regardless of the shell's working directory.
+RUN_DIR = Path(__file__).resolve().parent / "runs/test_gridpoint_co2_cfg"
+TIME_LIMIT_HOURS = 4.0
+if not 0 < TIME_LIMIT_HOURS < float("inf"):
+    raise ValueError("TIME_LIMIT_HOURS must be positive and finite")
+# Count setup and training; allow the final model/cache export to finish.
+deadline = perf_counter() + TIME_LIMIT_HOURS * 3600
 RESUME = False
 DEVICE = (
     "mps"
     if torch.backends.mps.is_available()
-    else "cuda"
-    if torch.cuda.is_available()
-    else "cpu"
+    else "cuda" if torch.cuda.is_available() else "cpu"
 )
 THREADS = 4
 
+SEED = 20260716
+ROLLOUT_STEPS = 3
+
+# Load only tensors from the two selected AEs. No AE networks are constructed.
+train_atmosphere, train_ocean, val_atmosphere, val_ocean, train_dates, val_dates = (
+    load_training_latents(RUN_DIR)
+)
+forcing = load_run_co2(RUN_DIR)
+training_co2 = co2_values(
+    forcing, xr.DataArray(train_dates, dims="time", coords={"time": train_dates})
+).values
+validation_co2 = co2_values(
+    forcing, xr.DataArray(val_dates, dims="time", coords={"time": val_dates})
+).values
+training_data = LatentSequences(
+    train_atmosphere, train_ocean, train_dates, ROLLOUT_STEPS, co2=training_co2
+)
+validation_data = LatentSequences(
+    val_atmosphere, val_ocean, val_dates, ROLLOUT_STEPS, co2=validation_co2
+)
+torch.set_num_threads(THREADS)
+device = torch.device(DEVICE)
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+random.seed(SEED)
+
+# Build the transition. Edit these values to change the architecture.
 WIDTH = 132
 DEPTH = 4
 HEADS = 4
@@ -43,59 +80,16 @@ ATMOSPHERE_TAU = 0.5
 OCEAN_TAU = 6.0
 COUPLING = "jacobi"
 CROSS_GRADIENTS = False
+CONDITION_ON_CO2 = True
+CO2_DROPOUT = 0.10  # drop CO2 for 10% of training sequences, retaining month/history
+# Fit only on the training months. The model saves these values and accepts ppm.
+CO2_MEAN = float(np.mean(training_co2))
+CO2_STD = max(float(np.std(training_co2)), 1e-6)
 
-BATCH_SIZE = 4
-EPOCHS = 1000
-LEARNING_RATE = 1e-3
-WEIGHT_DECAY = 1e-4
-OPTIMIZER_EPS = 1e-6
-EMA_DECAY = 0.995
-ROLLOUT_STEPS = 3
-LOSS_WEIGHT = 0.01
-PATIENCE = 5
-MIN_DELTA = 1e-4
-SEED = 20260716
-VALIDATION_SEEDS = (271828, 314159)
-
-# The AEs are not instantiated for training diffusion: all needed states are cached.
-read_run(RUN_DIR)
-atmosphere = load_latents(RUN_DIR, "atmosphere")
-ocean = load_latents(RUN_DIR, "ocean")
-for split in ("training", "validation"):
-    if not np.array_equal(atmosphere[split + "_time"], ocean[split + "_time"]):
-        raise ValueError("Atmosphere/ocean latent dates differ")
-    if atmosphere[split].shape[1] != ocean[split].shape[1]:
-        raise ValueError("Coupled diffusion requires the same latent mesh")
-# Equal node counts alone are insufficient: rotation and latent refinement must match.
-ae_parameters = [
-    torch.load(RUN_DIR / c / "model.pt", map_location="cpu", weights_only=False)[
-        "parameters"
-    ]
-    for c in ("atmosphere", "ocean")
-]
-if (ae_parameters[0]["mesh_levels"][-1], tuple(ae_parameters[0]["rotation"])) != (
-    ae_parameters[1]["mesh_levels"][-1],
-    tuple(ae_parameters[1]["rotation"]),
-):
-    raise ValueError("Both AE caches must use the same latent mesh coordinates")
-training_data = LatentSequences(
-    atmosphere["training"],
-    ocean["training"],
-    atmosphere["training_time"],
-    ROLLOUT_STEPS,
-)
-validation_data = LatentSequences(
-    atmosphere["validation"],
-    ocean["validation"],
-    atmosphere["validation_time"],
-    ROLLOUT_STEPS,
-)
-validation_loader = DataLoader(validation_data, batch_size=BATCH_SIZE, shuffle=False)
-
-parameters = dict(
-    atmosphere_latent_channels=atmosphere["training"].shape[-1],
-    ocean_latent_channels=ocean["training"].shape[-1],
-    n_latent_tokens=atmosphere["training"].shape[1],
+diffusion = CoupledLatentDiffusion(
+    atmosphere_latent_channels=train_atmosphere.shape[-1],
+    ocean_latent_channels=train_ocean.shape[-1],
+    n_latent_tokens=train_atmosphere.shape[1],
     width=WIDTH,
     depth=DEPTH,
     n_heads=HEADS,
@@ -105,60 +99,42 @@ parameters = dict(
     ocean_tau=OCEAN_TAU,
     coupling=COUPLING,
     cross_gradients=CROSS_GRADIENTS,
-)
-settings = dict(
-    batch_size=BATCH_SIZE,
-    epochs=EPOCHS,
-    learning_rate=LEARNING_RATE,
-    weight_decay=WEIGHT_DECAY,
-    optimizer_eps=OPTIMIZER_EPS,
-    ema_decay=EMA_DECAY,
-    rollout_steps=ROLLOUT_STEPS,
-    loss_weight=LOSS_WEIGHT,
-    patience=PATIENCE,
-    min_delta=MIN_DELTA,
-    seed=SEED,
-    validation_seeds=VALIDATION_SEEDS,
-)
-if min(BATCH_SIZE, EPOCHS, PATIENCE, THREADS) < 1 or not VALIDATION_SEEDS:
-    raise ValueError(
-        "Require positive training counts and at least one validation seed"
-    )
-torch.set_num_threads(THREADS)
-device = torch.device(DEVICE)
-torch.manual_seed(SEED)
-np.random.seed(SEED)
-random.seed(SEED)
-diffusion = CoupledLatentDiffusion(**parameters).to(device)
+    condition_on_co2=CONDITION_ON_CO2,
+    co2_dropout=CO2_DROPOUT if CONDITION_ON_CO2 else 0.0,
+    co2_mean=CO2_MEAN,
+    co2_std=CO2_STD,
+).to(device)
 print(f"Diffusion: {sum(p.numel() for p in diffusion.parameters()):,} parameters")
-
-# Bind this transition to the exact selected AEs, preprocessing and cache contents.
 directory = RUN_DIR / "diffusion"
 directory.mkdir(parents=True, exist_ok=True)
-setup_path, model_path = directory / "setup.pt", directory / "model.pt"
-setup = dict(
-    parameters=parameters,
-    ae_digests={
-        c: {
-            name: file_digest(RUN_DIR / c / name)
-            for name in ("model.pt", "setup.pt", "latents.pt")
-        }
-        for c in ("atmosphere", "ocean")
-    },
+save_diffusion_setup(
+    directory, diffusion, training_co2=training_co2, validation_co2=validation_co2
 )
-if setup_path.exists():
-    if torch.load(setup_path, map_location="cpu", weights_only=False) != setup:
-        raise ValueError("Diffusion parameters or AE caches changed; choose a new run")
-else:
-    atomic_save(setup, setup_path)
-setup_digest = file_digest(setup_path)
-if model_path.exists():
+print(
+    f"CO2 FiLM: {CONDITION_ON_CO2}; dropout {diffusion.co2_dropout:.0%}; normalization {CO2_MEAN:.3f} +/- {CO2_STD:.3f} ppm"
+)
+if (directory / "model.pt").exists():
     if not RESUME:
-        raise FileExistsError(
-            "Selected diffusion exists; set RESUME=True or choose a new RUN_DIR"
-        )
+        raise FileExistsError("Selected diffusion exists; use a new run or RESUME=True")
     print("Keeping the selected diffusion model.")
     raise SystemExit(0)
+
+# Training controls are used directly by the optimizer and loop.
+BATCH_SIZE = 4
+EPOCHS = 1000
+LEARNING_RATE = 1e-3
+WEIGHT_DECAY = 1e-4
+OPTIMIZER_EPS = 1e-6
+EMA_DECAY = 0.995
+LOSS_WEIGHT = 1.0
+PATIENCE = 5
+MIN_DELTA = 1e-4
+VALIDATION_SEEDS = (271828, 314159)
+
+
+if min(BATCH_SIZE, EPOCHS, PATIENCE, THREADS) < 1 or not VALIDATION_SEEDS:
+    raise ValueError("Require positive training counts and validation seeds")
+validation_loader = DataLoader(validation_data, batch_size=BATCH_SIZE, shuffle=False)
 
 optimizer = torch.optim.AdamW(
     diffusion.parameters(),
@@ -167,119 +143,124 @@ optimizer = torch.optim.AdamW(
     eps=OPTIMIZER_EPS,
 )
 ema = EMA(diffusion, EMA_DECAY)
-# Separate weight initialization from the training RNG, as in the original trainer.
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 random.seed(SEED)
-history, step, first_epoch, stale = [], 0, 1, 0
-best, patience_best = float("inf"), float("inf")
-latest_path = directory / "latest.pt"
-if latest_path.exists():
-    if not RESUME:
-        raise FileExistsError("Interrupted diffusion training exists; set RESUME=True")
-    saved = torch.load(latest_path, map_location=device, weights_only=False)
-    check_resume_settings(saved["settings"], settings)
-    if saved["setup_digest"] != setup_digest:
-        raise ValueError("AE inputs changed since the interrupted training")
-    diffusion.load_state_dict(saved["model"])
-    optimizer.load_state_dict(saved["optimizer"])
-    ema.state = saved["ema"]
-    history, step, first_epoch, stale = (
-        saved["history"],
-        saved["step"],
-        saved["epoch"] + 1,
-        saved["stale"],
-    )
-    best, patience_best = saved["best"], saved["patience_best"]
-    restore_rng(saved["rng"])
-
-for epoch in range(first_epoch, EPOCHS + 1):
-    if stale >= PATIENCE:
-        break
-    started = perf_counter()
-    diffusion.train()
-    generator = torch.Generator().manual_seed(SEED + epoch)
-    training_loader = DataLoader(
-        training_data, batch_size=BATCH_SIZE, shuffle=True, generator=generator
-    )
-    totals, count = {}, 0
-    for batch in training_loader:
-        batch = {name: value.to(device) for name, value in batch.items()}
-        optimizer.zero_grad(set_to_none=True)
-        # The network implements the coupled multi-step diffusion objective.
-        # Its own generated history carries gradients; cross-component paths obey
-        # CROSS_GRADIENTS. No AE is trained and no physical data enter this loop.
-        terms = diffusion.rollout_loss(batch, loss_weight=LOSS_WEIGHT)
-        if not torch.isfinite(terms["loss"]):
-            raise FloatingPointError("Nonfinite diffusion loss")
-        terms["loss"].backward()
-        optimizer.step()
-        step += 1
-        ema.update(diffusion, step)
-        n = len(batch["month"])
-        count += n
-        for name, value in terms.items():
-            totals[name] = totals.get(name, 0.0) + n * float(value.detach())
-    row = dict(
-        epoch=epoch,
-        optimizer_steps=step,
-        **{f"train_{k}": v / count for k, v in totals.items()},
-    )
-
-    diffusion.eval()
-    totals, count = {}, 0
-    with ema.applied(diffusion), torch.no_grad():
-        for seed in VALIDATION_SEEDS:
-            # Replayed validation noise does not consume training's RNG stream.
-            with fixed_rng(seed, device):
-                for batch in validation_loader:
-                    batch = {name: value.to(device) for name, value in batch.items()}
-                    terms = diffusion.rollout_loss(batch, loss_weight=LOSS_WEIGHT)
-                    n = len(batch["month"])
-                    count += n
-                    for name, value in terms.items():
-                        totals[name] = totals.get(name, 0.0) + n * float(value)
-    row.update({f"val_{k}": v / count for k, v in totals.items()})
-    score = row["val_transition"]  # Selection uses the unscaled scientific objective.
-    if not np.isfinite(score):
-        raise FloatingPointError("Nonfinite validation loss")
-    if score < best:
-        best = score
-        atomic_save(
-            dict(model=ema.state, epoch=epoch, score=score), directory / "best.pt"
-        )
-    if score < patience_best - MIN_DELTA:
-        patience_best, stale = score, 0
-    else:
-        stale += 1
-    row.update(seconds=perf_counter() - started, stale_epochs=stale)
-    history.append(row)
-    atomic_save(
-        dict(
-            model=diffusion.state_dict(),
-            optimizer=optimizer.state_dict(),
-            ema=ema.state,
-            epoch=epoch,
-            step=step,
-            history=history,
-            best=best,
-            patience_best=patience_best,
-            stale=stale,
-            settings=settings,
-            setup_digest=setup_digest,
-            rng=rng_state(device),
-        ),
-        latest_path,
-    )
-    save_history(history, directory / "history.csv")
-    print(
-        f"Epoch {epoch:04d} | train {row['train_transition']:.6f} | validation {score:.6f} | stale {stale}/{PATIENCE}"
-    )
-
-selected = save_selection(
+progress = load_training_progress(
     directory,
-    parameters=parameters,
-    setup_digest=setup_digest,
-    training_settings=settings,
+    diffusion,
+    optimizer,
+    ema,
+    resume=RESUME,
+    batch_size=BATCH_SIZE,
+    epochs=EPOCHS,
+    patience=PATIENCE,
+    min_delta=MIN_DELTA,
+    seed=SEED,
+    validation_seeds=VALIDATION_SEEDS,
+    rollout_steps=ROLLOUT_STEPS,
+    loss_weight=LOSS_WEIGHT,
 )
-print(f"Selected epoch {selected['epoch']}; saved diffusion in {directory}")
+
+try:
+    for epoch in range(progress.epoch + 1, EPOCHS + 1):
+        check_time_limit(deadline)
+        if progress.stale_epochs >= PATIENCE:
+            break
+        started = perf_counter()
+        diffusion.train()
+        generator = torch.Generator().manual_seed(SEED + epoch)
+        training_loader = DataLoader(
+            training_data, batch_size=BATCH_SIZE, shuffle=True, generator=generator
+        )
+        atmosphere_sum = torch.zeros(ROLLOUT_STEPS, device=device)
+        ocean_sum = torch.zeros(ROLLOUT_STEPS, device=device)
+        count = 0
+        for atmosphere, ocean, months, co2 in training_loader:
+            check_time_limit(deadline)
+            atmosphere = atmosphere.to(device)
+            ocean = ocean.to(device)
+            months = months.to(device)
+            optimizer.zero_grad(set_to_none=True)
+            losses = rollout_loss(
+                diffusion,
+                atmosphere,
+                ocean,
+                months,
+                co2=co2.to(device),
+                loss_weight=LOSS_WEIGHT,
+            )
+            if not torch.isfinite(losses.total):
+                raise FloatingPointError("Nonfinite diffusion loss")
+            losses.total.backward()
+            optimizer.step()
+            progress.optimizer_steps += 1
+            ema.update(diffusion, progress.optimizer_steps)
+            atmosphere_sum += len(months) * losses.atmosphere.detach()
+            ocean_sum += len(months) * losses.ocean.detach()
+            count += len(months)
+        training_losses = DiffusionLoss(
+            atmosphere_sum / count, ocean_sum / count, LOSS_WEIGHT
+        )
+
+        diffusion.eval()
+        validation_sum = 0.0
+        atmosphere_sum = torch.zeros(ROLLOUT_STEPS, device=device)
+        ocean_sum = torch.zeros(ROLLOUT_STEPS, device=device)
+        count = 0
+        with ema.applied(diffusion), torch.no_grad():
+            for seed in VALIDATION_SEEDS:
+                # Replay the same validation draws without changing the training RNG.
+                with fixed_rng(seed, device):
+                    for atmosphere, ocean, months, co2 in validation_loader:
+                        check_time_limit(deadline)
+                        losses = rollout_loss(
+                            diffusion,
+                            atmosphere.to(device),
+                            ocean.to(device),
+                            months.to(device),
+                            co2=co2.to(device),
+                            loss_weight=LOSS_WEIGHT,
+                        )
+                        validation_sum += len(months) * float(losses.transition)
+                        atmosphere_sum += len(months) * losses.atmosphere
+                        ocean_sum += len(months) * losses.ocean
+                        count += len(months)
+        validation_losses = DiffusionLoss(
+            atmosphere_sum / count, ocean_sum / count, LOSS_WEIGHT
+        )
+        score = validation_sum / count  # average the unscaled batch losses
+        if not np.isfinite(score):
+            raise FloatingPointError("Nonfinite validation loss")
+        if score < progress.best_validation:
+            progress.best_validation = score
+            save_best_weights(directory, ema, epoch, score)
+        if score < progress.patience_best - MIN_DELTA:
+            progress.patience_best = score
+            progress.stale_epochs = 0
+        else:
+            progress.stale_epochs += 1
+        progress.epoch = epoch
+        epoch_seconds = perf_counter() - started  # training and validation
+        add_diffusion_history(
+            progress, training_losses, validation_losses, epoch_seconds
+        )
+        save_training_progress(directory, diffusion, optimizer, ema, progress)
+        print(
+            f"Epoch {epoch:04d} | train {float(training_losses.transition):.6f}"
+            f" | validation {score:.6f} | {epoch_seconds:.1f} s/epoch"
+            f" | stale {progress.stale_epochs}/{PATIENCE}"
+        )
+
+except TrainingTimeLimit as error:
+    if not (directory / "best.pt").exists():
+        raise RuntimeError(
+            "Time limit reached before any epoch finished validation; "
+            "increase TIME_LIMIT_HOURS before restarting."
+        ) from error
+    print("Training time limit reached; exporting the best completed validation epoch.")
+    # An unfinished epoch is discarded. latest.pt remains the last complete
+    # epoch, and best.pt supplies the weights used by every following stage.
+
+selected_epoch = select_best_weights(directory, diffusion)
+print(f"Selected epoch {selected_epoch}; saved diffusion in {directory}")

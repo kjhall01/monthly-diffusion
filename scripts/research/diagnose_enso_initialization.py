@@ -11,10 +11,14 @@ AR(1) noise histories. Only the initial two latent states differ. No decoding,
 retraining, changed sampler, or ensemble-mean subtraction is involved.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import json
-import sys
 
 import matplotlib
 
@@ -27,19 +31,12 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.data.sources import open_canonical_state, open_co2
-from monthly_diffusion.analysis.indices import enso_index
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.data.sources import open_canonical_state, open_co2
+from workflows.analysis.indices import enso_index
 
 
-from monthly_diffusion.experiments.diagnose_enso_initialization import (
-    design,
-    fit_readout,
-    metrics,
-    readout,
-    compare_initialization,
-    render,
-)
+from workflows.experiments.diagnose_enso_initialization import design, fit_readout, metrics, readout, compare_initialization, render
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--run", type=Path, default=ROOT / "runs/mdv1-era5-oras5")
@@ -54,7 +51,7 @@ args = p.parse_args()
 torch.set_num_threads(4)
 args.output.mkdir(parents=True, exist_ok=True)
 model = MonthlyDiffusionV1.load(args.run / "model.pt", device=args.device)
-cache = torch.load(args.run / "latents.pt", map_location="cpu", weights_only=False)
+cache = load_checkpoint(args.run / "latents.pt", map_location="cpu", weights_only=False)
 if cache["ae_digest"] != model.weight_digest(autoencoder_only=True):
     raise ValueError("Cached latents do not match the autoencoder")
 sources = yaml.safe_load(args.sources.read_text())

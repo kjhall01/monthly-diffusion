@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from monthly_diffusion.analysis.enso_diversity import regional_trajectory_anomalies, event_summary
-from monthly_diffusion.analysis.enso_dynamics import BOXES, detect_events
-from monthly_diffusion.analysis.spatial import weighted_mean
+from workflows.analysis.enso_diversity import regional_trajectory_anomalies, event_summary
+from workflows.analysis.enso_dynamics import BOXES, detect_events
+from workflows.analysis.spatial import weighted_mean
 
 
 def test_regional_joint_fit_commutes_with_fixed_mask_spatial_mean():

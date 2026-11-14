@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 import torch
 import xarray as xr
-from monthly_diffusion.forecast import Forecast, rollout
-from monthly_diffusion.data.sources import hold_first_co2_back_to
+from workflows.forecast import Forecast, rollout
+from workflows.data.sources import hold_first_co2_back_to
 
 
 class ToyTransition:
@@ -29,8 +29,9 @@ class ToyModel:
     def __init__(self, fail_at=None, nodes=32):
         self.device = torch.device('cpu')
         self.config = SimpleNamespace(mesh_levels=[2],latent_channels=4,to_dict=lambda:dict(test=True))
-        self.geometry = SimpleNamespace(graphs={'mesh_l0':SimpleNamespace(n_nodes=nodes,lat=torch.zeros(nodes),lon=torch.zeros(nodes))})
-        self.latent_normalizers = dict(atmosphere=True,ocean=True)
+        self.geometry = SimpleNamespace(meshes=[SimpleNamespace(n_nodes=nodes,lat=torch.zeros(nodes),lon=torch.zeros(nodes))])
+        self.latent_normalizers = {c: SimpleNamespace(mean=torch.zeros(4)) for c in ("atmosphere", "ocean")}
+        self.training_settings = {}
         self.transition = ToyTransition(fail_at)
         self.decoded = 0
 

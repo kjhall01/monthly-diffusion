@@ -1,25 +1,26 @@
 #!/usr/bin/env python
 """Render retained frozen-package response maps without changing diagnostics."""
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import hashlib
 import json
 import logging
-from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 import yaml
 
-from monthly_diffusion.analysis.long_rollout import save_dataset
-from monthly_diffusion.analysis.plotting import plot_response_matrix
+from workflows.analysis.long_rollout import save_dataset
+from workflows.analysis.plotting import plot_response_matrix
 
 
-from monthly_diffusion.experiments.render_publication_forced_response import (
-    STYLE,
-    load_responses,
-)
+from workflows.experiments.render_publication_forced_response import STYLE, load_responses
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("config", type=Path)
@@ -61,7 +62,7 @@ metadata["code_sha256"] = {
     str(p): hashlib.sha256(p.read_bytes()).hexdigest()
     for p in (
         Path(__file__),
-        Path(__file__).parents[2] / "monthly_diffusion/analysis/plotting.py",
+        Path(__file__).parents[2] / "workflows/analysis/plotting.py",
     )
 }
 (root / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")

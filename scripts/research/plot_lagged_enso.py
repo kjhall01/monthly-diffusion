@@ -1,29 +1,26 @@
 #!/usr/bin/env python
 """Saved-run lagged ENSO regressions and publication maps; no new inference."""
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import hashlib
 import json
 import logging
-from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
 import yaml
 
-from monthly_diffusion.analysis.archives import ClimateArchive
-from monthly_diffusion.analysis.lagged_enso import (
-    lagged_enso_products,
-    plot_lagged_enso,
-    SEASONS,
-)
-from monthly_diffusion.analysis.long_rollout import save_dataset
-from monthly_diffusion.analysis.spatial import (
-    weighted_rmse,
-    weighted_pattern_correlation,
-)
-from monthly_diffusion.data.configs import Variable
-from monthly_diffusion.data.dataloader import validate_units
+from workflows.analysis.archives import ClimateArchive
+from workflows.analysis.lagged_enso import lagged_enso_products, plot_lagged_enso, SEASONS
+from workflows.analysis.long_rollout import save_dataset
+from workflows.analysis.spatial import weighted_rmse, weighted_pattern_correlation
+from monthly_diffusion.preprocessing import Variable
+from workflows.data.dataloader import validate_units
 
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -72,7 +69,7 @@ for archive in (model, reference):
     )
 source_files = [
     Path(__file__),
-    Path(__file__).parents[2] / "monthly_diffusion/analysis/lagged_enso.py",
+    Path(__file__).parents[2] / "workflows/analysis/lagged_enso.py",
 ]
 identity = dict(
     config=config,

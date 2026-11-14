@@ -6,10 +6,13 @@ grid cells and months; missing values are excluded, genuine zeros retained.
 Nothing here fits or changes a model or its preprocessing.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import json
-import sys
 
 import matplotlib
 
@@ -20,18 +23,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.data.sources import open_canonical_state
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.data.sources import open_canonical_state
 
 
-from monthly_diffusion.experiments.audit_reanalysis_comparability import (
-    RUNS,
-    architecture,
-    distributions,
-    coastal_sst,
-    spread_and_replay,
-    support_audit,
-)
+from workflows.experiments.audit_reanalysis_comparability import RUNS, architecture, distributions, coastal_sst, spread_and_replay, support_audit
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--output", type=Path, default=ROOT / "analysis/era5_e3sm_comparability")

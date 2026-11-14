@@ -4,9 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
-from monthly_diffusion.analysis.seasonal_hindcast import (
-    winter_dates, reference_winters, co2_increment_climatology, forecast_co2,
-    djf_mean, terciles, categorize, probabilities, rps, aggregate_rpss, reliability)
+from workflows.analysis.seasonal_hindcast import winter_dates, reference_winters, co2_increment_climatology, forecast_co2, djf_mean, terciles, categorize, probabilities, rps, aggregate_rpss, reliability
 
 
 def test_dates_and_strict_test_seasons():
@@ -92,7 +90,7 @@ def test_existing_scoring_parity():
 def test_scoring_pipeline_same_member_case_preservation(tmp_path):
     """Tiny end-to-end archive->DJF->training thresholds->test scores."""
     import json
-    from monthly_diffusion.experiments import test_set_seasonal_hindcasts as runner
+    from workflows.experiments import test_set_seasonal_hindcasts as runner
     out = tmp_path/"e3sm"
     (out/"provenance").mkdir(parents=True)
     rows = []

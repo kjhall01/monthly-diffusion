@@ -7,11 +7,15 @@ means give equal weight to 12 monthly means, following long-rollout diagnostics.
 No climatology subtraction, trend removal, rebaselining, or bias correction.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import hashlib
 import json
 import logging
-from pathlib import Path
 
 import matplotlib
 
@@ -19,10 +23,7 @@ matplotlib.use("Agg")
 import yaml
 
 
-from monthly_diffusion.experiments.plot_global_trajectories_comparison import (
-    calculate,
-    plot,
-)
+from workflows.experiments.plot_global_trajectories_comparison import calculate, plot
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("config", type=Path)
@@ -39,9 +40,9 @@ if marker.exists() and json.loads(marker.read_text()) != config:
 marker.write_text(json.dumps(config, indent=2) + "\n")
 code = [
     Path(__file__),
-    Path(__file__).parents[2] / "monthly_diffusion/analysis/archives.py",
-    Path(__file__).parents[2] / "monthly_diffusion/analysis/climate.py",
-    Path(__file__).parents[2] / "monthly_diffusion/analysis/spatial.py",
+    Path(__file__).parents[2] / "workflows/analysis/archives.py",
+    Path(__file__).parents[2] / "workflows/analysis/climate.py",
+    Path(__file__).parents[2] / "workflows/analysis/spatial.py",
 ]
 (root / "code_provenance.json").write_text(
     json.dumps(

@@ -16,11 +16,15 @@ states. Only two initial months pass through the local moment transformation;
 neither subsequent inputs nor the checkpoint preprocessing are changed.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import hashlib
 import json
-import sys
 
 import matplotlib
 
@@ -32,18 +36,11 @@ import dask
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.training.common import atomic_save
+from workflows.legacy_model import MonthlyDiffusionV1
+from monthly_diffusion.checkpoints import atomic_save
 
 
-from monthly_diffusion.experiments.experiment_local_moment_spinup import (
-    COMPONENTS,
-    METHODS,
-    fit_moments,
-    matched_history,
-    run_experiment,
-    analyze,
-)
+from workflows.experiments.experiment_local_moment_spinup import COMPONENTS, METHODS, fit_moments, matched_history, run_experiment, analyze
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument(
@@ -64,7 +61,7 @@ dask.config.set(scheduler="threads", num_workers=4)
 base = json.loads((args.baseline / "configuration.json").read_text())
 run = Path(base["checkpoint"]).parent
 sources = yaml.safe_load((run / "data_sources.yaml").read_text())
-cache = torch.load(run / "latents.pt", map_location="cpu", weights_only=False)
+cache = load_checkpoint(run / "latents.pt", map_location="cpu", weights_only=False)
 record = dict(
     baseline=str(args.baseline.resolve()),
     baseline_configuration=base,
@@ -94,7 +91,7 @@ if not args.analysis_only:
         raise SystemExit(0)
     initial_path = args.output / "initial_state.pt"
     if initial_path.exists():
-        initial = torch.load(initial_path, map_location="cpu", weights_only=False)
+        initial = load_checkpoint(initial_path, map_location="cpu", weights_only=False)
     else:
         initial = matched_history(model, base, args.output)
         atomic_save(initial, initial_path)

@@ -5,9 +5,12 @@ correct masks; only ENSO/PDO/NAO/QBO scalars are retained. Annual output shards
 are resumable, and the selected years/members/methods are recorded explicitly.
 """
 
-from pathlib import Path
-import json
+# Make the repository workflow helpers available when running this file directly.
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import json
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,10 +18,10 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
-from monthly_diffusion.experiments.experiment_isotropic_cycling_sweep import OUTPUT
+from workflows.experiments.experiment_isotropic_cycling_sweep import OUTPUT
 
 
-from monthly_diffusion.experiments.decode_isotropic_cycling import run
+from workflows.experiments.decode_isotropic_cycling import run
 
 # Do not compete for the GPU with the latent experiments. The confirmation
 # statistics are written only after both 100-year cohorts have finished.

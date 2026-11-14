@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 import xarray as xr
-from monthly_diffusion.analysis.monthly_regression import regress_on_monthly_residual
+from workflows.analysis.monthly_regression import regress_on_monthly_residual
 
 
 class ArrayArchive:

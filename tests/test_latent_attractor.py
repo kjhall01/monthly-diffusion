@@ -7,7 +7,7 @@ import xarray as xr
 
 from test_gaussian_forecast import ToyModel
 
-from monthly_diffusion.experiments import diagnose_latent_attractor as audit
+from workflows.experiments import diagnose_latent_attractor as audit
 
 
 def test_fixed_anomalies_preserve_offset_and_window_removal_does_not_mix_members():

@@ -8,11 +8,15 @@ and no ensemble-mean subtraction. Compare each stochastic trajectory before
 averaging statistics, not statistics of the ensemble-mean trajectory.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import hashlib
 import json
-import sys
 
 import matplotlib
 
@@ -23,22 +27,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.experiments.experiment_cycle_duration import DISPLAY
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.experiments.experiment_cycle_duration import DISPLAY
 
 
-from monthly_diffusion.experiments.diagnose_cycling_modes import (
-    MODES,
-    COMPONENTS,
-    ARCHIVES,
-    prepare_readouts,
-    decode_saved,
-    assemble,
-    analyze,
-    render,
-    render_seasonal_sensitivity,
-    render_summary,
-)
+from workflows.experiments.diagnose_cycling_modes import MODES, COMPONENTS, ARCHIVES, prepare_readouts, decode_saved, assemble, analyze, render, render_seasonal_sensitivity, render_summary
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--run", type=Path, default=ROOT / "runs/mdv1-era5-oras5-sst-support")
@@ -50,7 +43,7 @@ args = p.parse_args()
 torch.set_num_threads(4)
 args.output.mkdir(parents=True, exist_ok=True)
 config = json.loads((ARCHIVES["observed"] / "configuration.json").read_text())
-cache = torch.load(args.run / "latents.pt", map_location="cpu", weights_only=False)
+cache = load_checkpoint(args.run / "latents.pt", map_location="cpu", weights_only=False)
 if cache["ae_digest"] != config["ae_digest"]:
     raise ValueError("Wrong cached autoencoder")
 source = yaml.safe_load((args.run / "data_sources.yaml").read_text())

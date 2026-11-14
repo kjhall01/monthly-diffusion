@@ -1,11 +1,15 @@
 #!/usr/bin/env python
 """Extend E/C event distributions without regenerating lagged dynamics plots."""
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import hashlib
 import json
 import logging
-from pathlib import Path
 
 import matplotlib
 
@@ -15,17 +19,13 @@ import pandas as pd
 import xarray as xr
 import yaml
 
-from monthly_diffusion.analysis.archives import ClimateArchive
-from monthly_diffusion.analysis.enso_dynamics import detect_events
-from monthly_diffusion.analysis.enso_diversity import (
-    extract_boxes,
-    regional_trajectory_anomalies,
-    event_summary,
-)
-from monthly_diffusion.analysis.enso_dynamics_plots import plot_ec
-from monthly_diffusion.analysis.long_rollout import save_dataset
-from monthly_diffusion.data.configs import Variable
-from monthly_diffusion.data.dataloader import validate_units
+from workflows.analysis.archives import ClimateArchive
+from workflows.analysis.enso_dynamics import detect_events
+from workflows.analysis.enso_diversity import extract_boxes, regional_trajectory_anomalies, event_summary
+from workflows.analysis.enso_dynamics_plots import plot_ec
+from workflows.analysis.long_rollout import save_dataset
+from monthly_diffusion.preprocessing import Variable
+from workflows.data.dataloader import validate_units
 
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -43,8 +43,8 @@ if marker.exists() and json.loads(marker.read_text()) != config:
 marker.write_text(json.dumps(config, indent=2) + "\n")
 code_paths = [
     Path(__file__),
-    *list((Path(__file__).parents[2] / "monthly_diffusion/analysis").glob("enso_*.py")),
-    Path(__file__).parents[2] / "monthly_diffusion/analysis/archives.py",
+    *list((Path(__file__).parents[2] / "workflows/analysis").glob("enso_*.py")),
+    Path(__file__).parents[2] / "workflows/analysis/archives.py",
 ]
 (
     root / ("code_provenance_plots.json" if args.plots_only else "code_provenance.json")

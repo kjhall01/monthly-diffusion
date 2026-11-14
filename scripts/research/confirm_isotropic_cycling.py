@@ -4,17 +4,16 @@ Run: python scripts/research/confirm_isotropic_cycling.py
 Only reads the selection; does not optimize durations on the confirmation runs.
 """
 
-from pathlib import Path
-import json
+# Make the repository workflow helpers available when running this file directly.
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import json
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from monthly_diffusion.experiments import (
-    experiment_isotropic_cycling_sweep as experiment,
-)
-from monthly_diffusion.experiments import (
-    diagnose_isotropic_cycling_sweep as diagnostics,
-)
+from workflows.experiments import experiment_isotropic_cycling_sweep as experiment
+from workflows.experiments import diagnose_isotropic_cycling_sweep as diagnostics
 
 decision = json.loads((experiment.OUTPUT / "selection.json").read_text())
 cycles = tuple(decision["confirmation_cycles"])

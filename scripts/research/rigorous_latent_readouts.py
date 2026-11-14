@@ -7,9 +7,13 @@ only; no model weights are changed.
 
 from __future__ import annotations
 
-import argparse
-from pathlib import Path
+# Make the repository workflow helpers available when running this file directly.
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
+import argparse
 import gc
 import numpy as np
 import pandas as pd
@@ -20,17 +24,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.data.sources import open_canonical_state, open_co2
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.data.sources import open_canonical_state, open_co2
 
 
-from monthly_diffusion.experiments.rigorous_latent_readouts import (
-    idx,
-    monthly_climatology,
-    anomalies,
-    blocked_probe,
-    score,
-)
+from workflows.experiments.rigorous_latent_readouts import idx, monthly_climatology, anomalies, blocked_probe, score
 
 p = argparse.ArgumentParser()
 p.add_argument("--run", type=Path, default=ROOT / "runs/mdv1-e3smv2-r1i1p1f1")
@@ -45,7 +43,7 @@ source = yaml.safe_load(args.data.read_text())
 co2 = open_co2(source["co2_netcdf"], expected_sha256=source.get("co2_sha256"))
 model = MonthlyDiffusionV1.load(args.run / "model.pt", device=args.device)
 members = ["r1i1p1f1", "r2i1p1f1", "r3i1p1f1", "r4i1p1f1", "r5i1p1f1"]
-cache = torch.load(args.run / "latents.pt", map_location="cpu", weights_only=False)
+cache = load_checkpoint(args.run / "latents.pt", map_location="cpu", weights_only=False)
 r1_path = source["state_zarr"]
 r1a, r1o, _ = open_canonical_state(r1_path, expected_attrs=source.get("expected_attrs"))
 r1a_train, r1o_train = (

@@ -14,10 +14,13 @@ and every five steps, plus every month's pre/post-cycle latents and statistics.
 Step zero is the decoded encoded-noise current history, NOT the raw noise.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import json
-import sys
 
 import matplotlib
 
@@ -29,14 +32,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.data.sources import open_co2
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.data.sources import open_co2
 
 
-from monthly_diffusion.experiments.pilot_cycled_initialization import (
-    run_pilot,
-    plot_results,
-)
+from workflows.experiments.pilot_cycled_initialization import run_pilot, plot_results
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--run", type=Path, default=ROOT / "runs/mdv1-era5-oras5-sst-support")

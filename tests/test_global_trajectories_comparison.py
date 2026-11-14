@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from monthly_diffusion.experiments import plot_global_trajectories_comparison as plotter
+from workflows.experiments import plot_global_trajectories_comparison as plotter
 
 ROOT = Path(__file__).resolve().parents[1]
 

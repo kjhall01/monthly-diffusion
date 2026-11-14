@@ -8,9 +8,9 @@ import pytest
 import xarray as xr
 import yaml
 
-from monthly_diffusion.analysis.trajectory_anomalies import TrainingTrajectoryAnomalies
-from monthly_diffusion.analysis.long_rollout import run_physical_diagnostics, variable_products
-from monthly_diffusion.analysis import teleconnection
+from workflows.analysis.trajectory_anomalies import TrainingTrajectoryAnomalies
+from workflows.analysis.long_rollout import run_physical_diagnostics, variable_products
+from workflows.analysis import teleconnection
 
 
 class ArrayArchive:

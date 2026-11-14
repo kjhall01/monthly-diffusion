@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 import xarray as xr
-from monthly_diffusion.analysis.climate import internal_variability
-from monthly_diffusion.analysis.lagged_enso import lagged_seasonal_means, lagged_enso_products, SEASONS
+from workflows.analysis.climate import internal_variability
+from workflows.analysis.lagged_enso import lagged_seasonal_means, lagged_enso_products, SEASONS
 
 
 def test_month_mapping_native_calendar_and_missing_support():

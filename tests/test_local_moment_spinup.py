@@ -3,12 +3,12 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 import xarray as xr
-from monthly_diffusion.forecast import Forecast
+from workflows.forecast import Forecast
 from test_encoded_noise_forecast import NoiseModel
 from test_cycled_initialization import CycleModel
 
-from monthly_diffusion.experiments import experiment_local_moment_spinup as experiment
-from monthly_diffusion.experiments import experiment_cycled_spinup as previous
+from workflows.experiments import experiment_local_moment_spinup as experiment
+from workflows.experiments import experiment_cycled_spinup as previous
 
 
 def test_monthly_population_moments_and_constant_cells():

@@ -1,6 +1,11 @@
 """Monthly NAO–SST maps from same-latent normal decoder reconstructions."""
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import sys, argparse
 import numpy as np, pandas as pd, torch, xarray as xr, yaml
 import matplotlib
@@ -11,11 +16,11 @@ import matplotlib.pyplot as plt
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.data.sources import open_canonical_state, open_co2
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.data.sources import open_canonical_state, open_co2
 
 
-from monthly_diffusion.experiments.plot_monthly_nao_sst_same_latent import nao, reg
+from workflows.experiments.plot_monthly_nao_sst_same_latent import nao, reg
 
 p = argparse.ArgumentParser()
 p.add_argument("--run", type=Path, default=ROOT / "runs/mdv1-e3smv2-r1i1p1f1")
@@ -36,7 +41,7 @@ co2 = open_co2(source["co2_netcdf"], expected_sha256=source.get("co2_sha256"))
 a, o = a.sel(time=slice("1966-01", "2006-12")), o.sel(time=slice("1966-01", "2006-12"))
 dates = pd.DatetimeIndex(a.time.values)
 model = MonthlyDiffusionV1.load(args.run / "model.pt", device=args.device)
-cache = torch.load(args.run / "latents.pt", map_location="cpu", weights_only=False)
+cache = load_checkpoint(args.run / "latents.pt", map_location="cpu", weights_only=False)
 za = xr.DataArray(
     cache["training"]["atmosphere"].numpy(),
     dims=("time", "node", "channel"),

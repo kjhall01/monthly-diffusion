@@ -4,13 +4,17 @@ No network is retrained. The source checkpoint is never overwritten. A future
 model.train() fits and saves these same statistics automatically.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import logging
-from pathlib import Path
 import torch
 import yaml
-from monthly_diffusion import MonthlyDiffusionV1
-from monthly_diffusion.data.sources import open_canonical_state
+from workflows.legacy_model import MonthlyDiffusionV1
+from workflows.data.sources import open_canonical_state
 
 
 p = argparse.ArgumentParser(description=__doc__)

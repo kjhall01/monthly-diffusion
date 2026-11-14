@@ -4,8 +4,8 @@ import pytest
 import xarray as xr
 from scipy.integrate import trapezoid
 
-from monthly_diffusion.analysis.enso_comparison import enso_statistics
-from monthly_diffusion.analysis.enso_diversity import regional_trajectory_anomalies
+from workflows.analysis.enso_comparison import enso_statistics
+from workflows.analysis.enso_diversity import regional_trajectory_anomalies
 
 
 def index_series():

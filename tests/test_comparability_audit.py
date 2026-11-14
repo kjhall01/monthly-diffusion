@@ -3,7 +3,7 @@
 import numpy as np
 
 
-from monthly_diffusion.experiments import audit_reanalysis_comparability as audit
+from workflows.experiments import audit_reanalysis_comparability as audit
 
 
 def test_coast_wraps_longitude_not_latitude():

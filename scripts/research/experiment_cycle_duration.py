@@ -13,11 +13,15 @@ a hidden perturbation. Completed new years are resumable. No decoded field
 archives, training or checkpoint modifications are made.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import hashlib
 import json
-import sys
 
 import matplotlib
 
@@ -27,15 +31,10 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1
+from workflows.legacy_model import MonthlyDiffusionV1
 
 
-from monthly_diffusion.experiments.experiment_cycle_duration import (
-    COMPONENTS,
-    DURATIONS,
-    run_experiment,
-    analyze,
-)
+from workflows.experiments.experiment_cycle_duration import COMPONENTS, DURATIONS, run_experiment, analyze
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument(
@@ -55,7 +54,7 @@ baseline_config = json.loads((args.baseline / "configuration.json").read_text())
 base = baseline_config["baseline_configuration"]
 initial_path = args.baseline / "initial_state.pt"
 run = Path(base["checkpoint"]).parent
-cache = torch.load(run / "latents.pt", map_location="cpu", weights_only=False)
+cache = load_checkpoint(run / "latents.pt", map_location="cpu", weights_only=False)
 if cache["ae_digest"] != base["ae_digest"]:
     raise ValueError("Autoencoder identity mismatch")
 config = dict(
@@ -79,7 +78,7 @@ if not args.analysis_only:
     model = MonthlyDiffusionV1.load(run / "model.pt", device=args.device)
     if model.weight_digest() != base["weight_digest"]:
         raise ValueError("Checkpoint identity mismatch")
-    initial = torch.load(initial_path, map_location="cpu", weights_only=False)
+    initial = load_checkpoint(initial_path, map_location="cpu", weights_only=False)
     run_experiment(
         model, initial, base, args.baseline, args.output, args.stop_after_years
     )

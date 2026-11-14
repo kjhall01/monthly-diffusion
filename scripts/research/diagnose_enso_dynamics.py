@@ -1,31 +1,27 @@
 #!/usr/bin/env python
 """Three-source ENSO dynamical diagnostics from existing monthly archives."""
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import hashlib
 import json
 import logging
-from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
 import yaml
 
-from monthly_diffusion.analysis.archives import ClimateArchive
-from monthly_diffusion.analysis.enso_dynamics import (
-    fixed_sst_support,
-    extract_source,
-    lagged_products,
-    OCEAN_VARIABLES,
-)
-from monthly_diffusion.analysis.enso_dynamics_plots import plot_dynamics, STYLE
-from monthly_diffusion.analysis.long_rollout import save_dataset
-from monthly_diffusion.analysis.spatial import (
-    weighted_rmse,
-    weighted_pattern_correlation,
-)
-from monthly_diffusion.data.configs import Variable
-from monthly_diffusion.data.dataloader import validate_units
+from workflows.analysis.archives import ClimateArchive
+from workflows.analysis.enso_dynamics import fixed_sst_support, extract_source, lagged_products, OCEAN_VARIABLES
+from workflows.analysis.enso_dynamics_plots import plot_dynamics, STYLE
+from workflows.analysis.long_rollout import save_dataset
+from workflows.analysis.spatial import weighted_rmse, weighted_pattern_correlation
+from monthly_diffusion.preprocessing import Variable
+from workflows.data.dataloader import validate_units
 
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -44,12 +40,12 @@ marker.write_text(json.dumps(config, indent=2) + "\n")
 code_paths = [
     Path(__file__),
     *list(
-        (Path(__file__).parents[2] / "monthly_diffusion/analysis").glob(
+        (Path(__file__).parents[2] / "workflows/analysis").glob(
             "enso_dynamics*.py"
         )
     ),
-    Path(__file__).parents[2] / "monthly_diffusion/analysis/lagged_enso.py",
-    Path(__file__).parents[2] / "monthly_diffusion/analysis/trajectory_anomalies.py",
+    Path(__file__).parents[2] / "workflows/analysis/lagged_enso.py",
+    Path(__file__).parents[2] / "workflows/analysis/trajectory_anomalies.py",
 ]
 provenance = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in code_paths}
 (root / f"code_provenance_{args.stage}.json").write_text(

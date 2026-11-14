@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from monthly_diffusion.experiments import render_publication_forced_response as module
+from workflows.experiments import render_publication_forced_response as module
 
 
 def make_products(root):

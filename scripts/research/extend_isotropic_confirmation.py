@@ -6,18 +6,17 @@ new years and summaries live in separate directories. Wait for the physical
 decode job to release the GPU before continuing inference.
 """
 
-from pathlib import Path
+# Make the repository workflow helpers available when running this file directly.
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import time
 import json
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from monthly_diffusion.experiments import (
-    experiment_isotropic_cycling_sweep as experiment,
-)
-from monthly_diffusion.experiments import (
-    diagnose_isotropic_cycling_sweep as diagnostics,
-)
+from workflows.experiments import experiment_isotropic_cycling_sweep as experiment
+from workflows.experiments import diagnose_isotropic_cycling_sweep as diagnostics
 
 names = ("confirm_january", "confirm_july")
 while not all(

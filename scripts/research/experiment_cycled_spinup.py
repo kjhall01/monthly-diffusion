@@ -11,10 +11,14 @@ No physical maps are archived. All-field physical decode/re-encode remains
 identical to the pilot; only the current history slot is replaced.
 """
 
+# Make the repository workflow helpers available when running this file directly.
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from monthly_diffusion.checkpoints import load_checkpoint
+
 import argparse
 import json
-import sys
 
 import matplotlib
 
@@ -24,15 +28,10 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from monthly_diffusion import MonthlyDiffusionV1
+from workflows.legacy_model import MonthlyDiffusionV1
 
 
-from monthly_diffusion.experiments.experiment_cycled_spinup import (
-    COMPONENTS,
-    METHODS,
-    run_experiment,
-    analyze,
-)
+from workflows.experiments.experiment_cycled_spinup import COMPONENTS, METHODS, run_experiment, analyze
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument(
@@ -63,7 +62,7 @@ probe_config = json.loads((args.readouts / "configuration.json").read_text())
 if source["weight_digest"] != probe_config["checkpoint_sha256"]:
     raise ValueError("Probe checkpoint mismatch")
 run = Path(source["run"])
-cache = torch.load(run / "latents.pt", map_location="cpu", weights_only=False)
+cache = load_checkpoint(run / "latents.pt", map_location="cpu", weights_only=False)
 record = dict(
     checkpoint=str(run / "model.pt"),
     weight_digest=source["weight_digest"],
